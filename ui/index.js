@@ -133,7 +133,8 @@ function mejs_media_Player(func_restarter, sourceUrl) {
       checkActivity();
 
       // Click to exit fullscreen / resume playback
-      document.getElementsByClassName("mejs__mediaelement")[0]
+      document
+        .getElementsByClassName("mejs__mediaelement")[0]
         .addEventListener("click", function () {
           if (mejsPlayerInstance.isFullScreen) {
             mejsPlayerInstance.exitFullScreen();
@@ -207,11 +208,6 @@ $(document).ready(function () {
 
   // Set up volume +/- buttons and mute toggle
   volume_changer();
-
-  // Initialize on-screen keyboard if enabled
-  if (typeof displayKeyboard !== "undefined" && displayKeyboard) {
-    Keyboard.init();
-  }
 });
 
 // ---------------------------------------------------------------------------
