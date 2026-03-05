@@ -1,0 +1,132 @@
+.top-middle-block {
+  position: absolute;
+  margin-top: 0.5%;
+  top: 40%;
+  left: 20%;
+  right: 35%;
+  bottom: 5%;
+}
+
+#div_img_video_loader {
+  position: absolute;
+  border: 0.25vw solid #0f9171;
+  border-radius: 0.5vw;
+  top: 0px;
+  left: 0px;
+  right: 11%;
+  bottom: 0px;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+#left-side-arrow {
+  position: absolute;
+  left: 90%;
+  top: 0px;
+  bottom: 0px;
+  right: 0px;
+}
+
+/* Top-middle-block */
+.top-middle-block h3 {
+  font-family: verdana;
+  font-size: clamp(1vw, 1.2vw, 2vw);
+  color: #7e0000;
+  text-align: center;
+  margin: 1.5vh 0px 0px 0px;
+  padding: 0px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* table for video img & title */
+table {
+  width: 99.5%;
+  cursor: pointer;
+}
+th,
+td {
+  padding: 0.2vw;
+  border-collapse: collapse;
+}
+th {
+  border: none;
+  width: 15%;
+}
+td {
+  border: 0.1vw solid black;
+  width: 85%;
+  text-align: center;
+  font-size: clamp(0.5vw, 1.2vw, 1.5vw);
+  font-weight: bold;
+  border-radius: 0.5vw;
+}
+#index {
+  width: 5%;
+}
+
+/* youtube search-input, logo and speedtest-button */
+#search_query {
+  width: 78%;
+  margin: 0.5vw;
+  border-radius: 0.5vw;
+  border: 0.1vw solid #315f53;
+  text-align: center;
+  font-size: clamp(1vw, 2vw, 3vw);
+  padding: 0px;
+}
+#search_button {
+  width: 16%;
+  margin: 0.5vw;
+  border-radius: 0.5vw;
+  border: 0.1vw solid #315f53;
+  background-color: #ff0000;
+  color: white;
+  font-size: clamp(1vw, 2vw, 3vw);
+  padding: 0px;
+}
+#speedtest {
+  width: 60%;
+  margin: auto;
+}
+
+/* song up and down arrow */
+#scroll_up,
+#scroll_down {
+  background-color: #4100f4;
+  border: 0.1vw solid #315f53;
+  border-radius: 1vw;
+  padding: 0px;
+  color: white;
+  position: absolute;
+  left: 0px;
+  right: 0px;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  width: 100%;
+}
+.scroll_up_content {
+  top: 0px;
+  bottom: 85%;
+}
+.scroll_down_content {
+  top: 85%;
+  bottom: 0px;
+}
+
+#scroll_up:hover,
+#scroll_down:hover {
+  background-color: #0f9171;
+  box-shadow: 3px 3px 10px #d3cccc;
+  transform: translateX(-1px);
+}
+
+#scroll_up:active,
+#scroll_down:active {
+  background-color: #0f9171;
+  transform: translateX(1px);
+  box-shadow: 0px 0px 0px #d3cccc;
+}

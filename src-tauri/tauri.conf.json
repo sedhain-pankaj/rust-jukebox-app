@@ -1,0 +1,43 @@
+{
+    "productName": "Craig Williams JukeBox",
+    "version": "0.1.0",
+    "identifier": "com.craigwilliams.jukebox",
+    "build": {
+        "frontendDist": "../ui"
+    },
+    "app": {
+        "withGlobalTauri": true,
+        "windows": [
+            {
+                "label": "main",
+                "title": "Craig Williams JukeBox",
+                "fullscreen": false,
+                "resizable": true,
+                "width": 1920,
+                "height": 1080,
+                "decorations": true,
+                "alwaysOnTop": false,
+                "url": "index.html"
+            }
+        ],
+        "security": {
+            "csp": "default-src 'self' 'unsafe-inline' 'unsafe-eval' asset: http://asset.localhost https://asset.localhost; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://www.youtube.com; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' asset: http://asset.localhost https://asset.localhost data: https://*.ytimg.com https://*.googleusercontent.com; media-src 'self' asset: http://asset.localhost https://asset.localhost blob: https://www.youtube.com https://www.youtube-nocookie.com; connect-src 'self' http://ipc.localhost https://ipc.localhost http://asset.localhost https://asset.localhost https://www.googleapis.com https://www.youtube.com; frame-src https://www.youtube.com https://www.youtube-nocookie.com",
+            "dangerousDisableAssetCspModification": true,
+            "assetProtocol": {
+                "enable": true,
+                "scope": ["**"]
+            }
+        }
+    },
+    "bundle": {
+        "active": true,
+        "targets": "all",
+        "icon": [
+            "icons/32x32.png",
+            "icons/128x128.png",
+            "icons/128x128@2x.png",
+            "icons/icon.icns",
+            "icons/icon.ico"
+        ]
+    }
+}

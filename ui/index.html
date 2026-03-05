@@ -1,0 +1,278 @@
+<!--
+=============================================================================
+  index.html — The Frontend Entry Point (Tauri Version)
+=============================================================================
+
+  This is the EXACT same layout as the original index.php, but running
+  inside Tauri's WebView instead of Apache + Firefox kiosk.
+
+  Layout (same 3-column design):
+    LEFT BLOCK (0-20%):   Shuffle/Randomizer, Categories, YouTube, Volume
+    MIDDLE (20-65%):      Video player (top), Song display (bottom), Footer
+    RIGHT BLOCK (65-100%): Search (top), Queue (bottom)
+
+  Changes from original:
+    - No PHP includes (data comes from Rust via IPC)
+    - Category buttons built via JS from Rust data (was PHP foreach)
+    - Song thumbnails built via JS from Rust data (was PHP logic.php)
+    - MediaElement.js init/destroy done PROPERLY (see index.js comments)
+    - Paths use Tauri's asset protocol instead of Apache's file serving
+=============================================================================
+-->
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Craig Williams JukeBox</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="description" content="Craig Williams JukeBox">
+    <meta property="og:title" content="Craig Williams JukeBox">
+    <meta name="author" content="psedha10">
+    <meta name="owner" content="craigw@craigwilliams.com.au">
+    <meta name="og:country-name" content="Aussie">
+
+    <!-- =====================================================================
+         CSS — Same files, same order as the original index.php.
+         Paths use leading slash = resolved from Tauri's frontendDist root (ui/).
+    ====================================================================== -->
+    <link rel="stylesheet" type="text/css" href="/CSS/sidenav.css">
+    <link rel="stylesheet" type="text/css" href="/CSS/keyboard.css">
+    <link rel="stylesheet" type="text/css" href="/jquery-framework/jquery-ui.css">
+    <link rel="stylesheet" type="text/css" href="/CSS/style.css">
+    <link rel="stylesheet" type="text/css" href="/CSS/left-block.css">
+    <link rel="stylesheet" type="text/css" href="/CSS/top-middle-block.css">
+    <link rel="stylesheet" type="text/css" href="/CSS/bottom-middle-block.css">
+    <link rel="stylesheet" type="text/css" href="/CSS/right-block-search.css">
+    <link rel="stylesheet" type="text/css" href="/CSS/right-block-scroll.css">
+    <link rel="stylesheet" type="text/css" href="/CSS/materialUI-icons.css">
+    <link rel="stylesheet" type="text/css" href="/CSS/mejs.css">
+
+    <!-- =====================================================================
+         JS — Same libraries, same order as original.
+         defer = don't block rendering, run after HTML is parsed.
+
+         KEY CHANGES from original:
+           - songs.js    → Rewritten to use Tauri IPC (was AJAX → logic.php)
+           - shuffle.js  → Rewritten to use Tauri IPC (was AJAX → logic.php)
+           - search.js   → Rewritten to search JS cache (same logic, no AJAX)
+           - queue.js    → Adapted for Tauri asset paths + proper mejs destroy
+           - index.js    → mejs_media_Player() rewritten with proper lifecycle
+           - scrollbar.js→ Adapted (same functions, no changes needed)
+           - Everything else (jquery, mejs lib, modal, keyboard) is IDENTICAL
+    ====================================================================== -->
+    <script src="/jquery-framework/external/jquery/jquery.js" defer></script>
+    <script src="/jquery-framework/jquery-ui.js" defer></script>
+    <script src="/JS/config.js" defer></script>
+    <script src="/JS/mejs.js" defer></script>
+    <script src="/JS/modal.js" defer></script>
+    <script src="/JS/songs.js" defer></script>
+    <script src="/JS/queue.js" defer></script>
+    <script src="/JS/youtube.js" defer></script>
+    <script src="/JS/shuffle.js" defer></script>
+    <script src="/JS/delete.js" defer></script>
+    <script src="/JS/search.js" defer></script>
+    <script src="/JS/keyboard.js" defer></script>
+    <script src="/JS/skip.js" defer></script>
+    <script src="/JS/scrollbar.js" defer></script>
+    <script src="/JS/event-handlers.js" defer></script>
+    <script src="/index.js" defer></script>
+</head>
+
+<body>
+
+    <!-- =================================================================
+         LEFT BLOCK — Shuffle, Categories, YouTube, Volume
+         =================================================================
+         IDENTICAL HTML structure to the original index.php.
+         Only difference: category buttons are built by JS (songs.js)
+         instead of PHP <?php foreach ?>.
+    ================================================================= -->
+    <div class="left-block">
+
+        <!-- Randomizer sidenav overlay — slides out when "Randomizer" is clicked.
+             In original PHP, the shuffle button IDs were hardcoded via PHP foreach.
+             Now they're built dynamically by shuffle.js from Rust data. -->
+        <div id="mySidenav" class="sidenav">
+            <a class="closebtn" id="closebtn">&times;</a>
+            <!-- Shuffle category links — built by shuffle.js on startup -->
+            <div id="shuffle-links"></div>
+        </div>
+
+        <!-- Left block: buttons section -->
+        <div class="buttons_leftblock">
+            <!-- Shuffle heading + Randomizer button -->
+            <span class='span-heading'> Shuffle: </span>
+            <button class="button-randomizer" id="randomizer" style="margin-bottom: 0.5vw;">
+                <i class="material-icons" style="font-size:clamp(1vw, 2vw, 3vw); margin-right:1vw;">menu</i>
+                Randomizer
+                <i class="material-icons" style="font-size:clamp(1vw, 2.5vw, 3vw); margin-left:0.4vw; color:#4100f4;">change_circle</i>
+            </button>
+
+            <!-- Categories heading + buttons container.
+                 In original: PHP foreach built <button class="button-left" id="5060">50's + 60's</button>
+                 Now: songs.js builds them dynamically from Rust data on startup. -->
+            <span class='span-heading' id="categories-heading"> Categories: </span>
+
+            <!-- Category buttons are inserted HERE by songs.js (before youtube-heading).
+                 In original PHP: <?php foreach ($categories as $id => $name) : ?>
+                   <button class="button-left" id="5060">50's + 60's</button>
+                 They're direct children of .buttons_leftblock — no wrapper div. -->
+
+            <!-- YouTube search button -->
+            <span class='span-heading' id="youtube-heading" style="margin-top: 0.5vw;"> YouTube: </span>
+            <button class="button-yt" id="youtube-btn">
+                <i class="material-icons" style="font-size:clamp(1vw, 2.5vw, 3vw); margin-right:1vw; color:brown;">smart_display</i>
+                YouTube Search
+            </button>
+        </div>
+
+        <!-- Left block: volume section (identical to original) -->
+        <div class="volume_leftblock">
+            <div class="volume-upper-section">
+                <div class="volume-digit">
+                    Volume:
+                    <span id="vol">50</span>
+                </div>
+                <i class="material-icons" id="mute">volume_up</i>
+            </div>
+            <div class="volume-lower-section">
+                <button id="vol_down">
+                    <i class="material-icons" style="font-size:clamp(1vw, 2.5vw, 3vw); position: absolute">do_not_disturb_on</i>
+                </button>
+                <button id="vol_up">
+                    <i class="material-icons" style="font-size:clamp(1vw, 2.5vw, 3vw); position: absolute">add_circle</i>
+                </button>
+                <div id="slider"></div>
+            </div>
+        </div>
+
+    </div>
+
+
+    <!-- =================================================================
+         MIDDLE TOP — Video Player (bottom-middle-block in CSS)
+         =================================================================
+         Despite the CSS class name, this is the TOP section of the middle.
+         Contains: Skip button, Video title, Video container.
+
+         The video element starts with src="" (empty).
+         When a song is queued or shuffle starts, src is set via JS and
+         MediaElement.js wraps the <video> with its player controls.
+    ================================================================= -->
+    <div class="bottom-middle-block" id="bottom-middle-block">
+
+        <div id="skip_button_div">
+            <button id="skip_button">
+                Skip
+                <i class="material-icons" style="font-size:clamp(1vw, 1.5vw, 2vw); color:blueviolet;">skip_next</i>
+            </button>
+        </div>
+
+        <div id="video_title_div">
+            <h4 id="video_title">Video Title</h4>
+        </div>
+
+        <div id="video_container">
+            <video id="video" src="" autoplay preload="metadata"></video>
+        </div>
+    </div>
+
+
+    <!-- =================================================================
+         RIGHT BLOCK — Search + Queue (identical HTML to original)
+    ================================================================= -->
+    <div class="right-block">
+
+        <!-- Search subsection -->
+        <div class="right-search">
+            <div id="search_header">
+                <span>
+                    Search
+                    <i class="material-icons" style="font-size:clamp(1vw, 2.5vw, 3vw); margin-left:0.3vw; color:#004230;">content_paste_search</i>
+                </span>
+            </div>
+            <div id="right-block-search">
+                <div class="select-div">
+                    <select id="select">
+                        <option value="all" selected> All Songs </option>
+                        <option value="karaoke"> Karaoke </option>
+                    </select>
+                </div>
+                <div class="input-div">
+                    <input type="text" id="search_all" placeholder="Search All Songs" autocomplete="off">
+                    <input type="text" id="search_karaoke" placeholder="Search Karaoke" autocomplete="off">
+                </div>
+            </div>
+        </div>
+
+        <!-- Queue subsection -->
+        <div class="right-queue">
+            <div id="queue_header">
+                <span>
+                    Queue
+                    <i class="material-icons" style="font-size:clamp(1vw, 2.5vw, 3vw); margin-left:0.2vw; color:#004230;">playlist_play</i>
+                </span>
+            </div>
+            <div class="clear_queue_div">
+                <button class="button-right" id="clear">
+                    Clear Queue
+                    <i class="material-icons" style="font-size:clamp(1vw, 2vw, 3vw); margin-left:0.5vw;">delete_sweep</i>
+                </button>
+            </div>
+            <div class="right-block-down" id="right-block-down"></div>
+            <div id="right-side-arrow">
+                <button id="scroll_up" class="scroll_up_queue">
+                    <i class="material-icons" style="font-size:clamp(1vw, 2.5vw, 3vw); position:absolute">arrow_circle_up</i>
+                </button>
+                <button id="scroll_down" class="scroll_down_queue">
+                    <i class="material-icons" style="font-size:clamp(1vw, 2.5vw, 3vw); position:absolute">arrow_circle_down</i>
+                </button>
+            </div>
+        </div>
+
+    </div>
+
+
+    <!-- =================================================================
+         MIDDLE BOTTOM — Song Display Area (top-middle-block in CSS)
+         =================================================================
+         Despite the CSS class name, this is the BOTTOM section of middle.
+         Contains: Song thumbnails/tables, Scroll arrows.
+
+         Songs are loaded by songs.js from the Rust backend via IPC and
+         injected into #div_img_video_loader when a category is clicked.
+    ================================================================= -->
+    <div class="top-middle-block">
+
+        <div id="div_img_video_loader">
+            <h3>Click on the categories on the left side.<br>
+                OR<br>
+                Search songs from top-right corner.<br>
+            </h3>
+        </div>
+
+        <div id="left-side-arrow">
+            <button id="scroll_up" class="scroll_up_content">
+                <i class="material-icons" style="font-size:clamp(1vw, 2.5vw, 3vw); position:absolute">arrow_circle_up</i>
+            </button>
+            <button id="scroll_down" class="scroll_down_content">
+                <i class="material-icons" style="font-size:clamp(1vw, 2.5vw, 3vw); position:absolute">arrow_circle_down</i>
+            </button>
+        </div>
+
+    </div>
+
+
+    <!-- =================================================================
+         FOOTER (identical to original)
+    ================================================================= -->
+    <div id="footer">
+        <span> Craig Williams Promotions. Call 1300-888-581 for Support.</span>
+        <!-- jQuery UI dialog container + hidden YouTube search input -->
+        <div id="dialog-confirm"></div>
+        <input type='hidden' id="search_query" name="search_query" placeholder="Search YouTube" autocomplete="off">
+    </div>
+
+</body>
+</html>

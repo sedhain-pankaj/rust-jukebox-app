@@ -1,0 +1,82 @@
+.bottom-middle-block {
+  position: absolute;
+  margin-top: 0.5%;
+  border: 0.25vw solid #0f9171;
+  border-radius: 0.5vw;
+  top: 0px;
+  left: 20%;
+  bottom: 60%;
+  right: 35%;
+}
+
+/* video title  */
+#video_title_div {
+  position: absolute;
+  margin: 0.5%;
+  inset: 0 15% 85% 0;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  border: 0.1vw solid #315f53;
+  border-radius: 0.5vw;
+}
+#video_title {
+  width: 100%;
+  font-size: clamp(0.5vw, 0.9vw, 1.5vw);
+  font-weight: bold;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* skip button */
+#skip_button_div {
+  position: absolute;
+  margin: 0.5%;
+  left: 85%;
+  top: 0px;
+  right: 0px;
+  bottom: 85%;
+}
+#skip_button {
+  position: absolute;
+  width: 100%;
+  left: 0px;
+  top: 0px;
+  right: 0px;
+  bottom: 0px;
+  cursor: pointer;
+  border: 0.1vw solid #315f53;
+  border-radius: 0.5vw;
+  background-color: rgba(206, 203, 203, 0.8);
+  font-size: clamp(1vw, 1.2vw, 2vw);
+  font-weight: bold;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  overflow: hidden;
+}
+#skip_button:hover {
+  background-color: #0f9171;
+  color: #fff;
+  box-shadow: 3px 3px 10px #d3cccc;
+  transform: translateX(-1px);
+  font-weight: bolder;
+}
+#skip_button:active {
+  transform: translateX(1px);
+  box-shadow: 0px 0px 0px #d3cccc;
+}
+
+/* video */
+#video_container {
+  position: absolute;
+  margin: 1.5% 1%;
+  inset: 12% 0 0 0;
+}
+video {
+  width: 100%;
+  height: 100%;
+  object-fit: fill;
+}

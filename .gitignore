@@ -1,0 +1,25 @@
+# Rust / Tauri build artifacts
+src-tauri/target/
+
+# Generated schemas (can be regenerated)
+src-tauri/gen/schemas/
+
+# Music/media files (too large for git)
+music/
+
+# OS files
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+*.log
+
+# API keys and secrets
+config.js

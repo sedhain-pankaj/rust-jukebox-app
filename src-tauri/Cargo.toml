@@ -1,0 +1,82 @@
+# =============================================================================
+# Cargo.toml — The manifest file for our Rust project
+# =============================================================================
+# Think of this like composer.json in PHP or package.json in Node.js.
+# It tells Rust:
+#   - What our project is called
+#   - What version it is
+#   - What external libraries ("crates") we depend on
+#
+# Rust's package manager is called "Cargo". When you run `cargo build`,
+# it reads this file, downloads dependencies, and compiles everything
+# into a single binary (.exe on Windows).
+# =============================================================================
+
+[package]
+# The name of our binary. After compilation, this becomes "rust-jukebox-app.exe"
+name = "rust-jukebox-app"
+
+# Semantic versioning: major.minor.patch
+# Bump this when you release updates
+version = "0.1.0"
+
+# The Rust language edition to use (2024 is the latest stable edition).
+# Editions are like PHP versions — they determine what syntax/features
+# are available. New editions come out every ~3 years.
+edition = "2024"
+
+# =============================================================================
+# [dependencies] — External libraries our project needs
+# =============================================================================
+# In PHP, you'd do `composer require somepackage`.
+# In Rust, you list them here and Cargo downloads them automatically.
+#
+# The format is:  crate_name = "version"
+#   or for more options:  crate_name = { version = "x", features = ["a", "b"] }
+#
+# "features" are like optional modules within a crate. You only enable
+# what you need to keep the binary small and compilation fast.
+# =============================================================================
+
+[dependencies]
+
+# Tauri — The framework that gives us a native window with a web view inside.
+# Instead of opening Firefox in kiosk mode, Tauri uses Windows' built-in
+# WebView2 (the same engine as Microsoft Edge) to render our HTML/CSS/JS.
+#
+# Features explained:
+#   - No extra features needed for now. We'll add more as we build
+#     (e.g., "fs" for file access, "shell" for running commands, etc.)
+tauri = { version = "2", features = ["protocol-asset"] }
+
+# Tauri's build helper — required for Tauri to compile correctly.
+# It handles things like embedding your HTML files into the binary
+# and generating the Windows resource file (.rc) for the exe icon.
+tauri-build = { version = "2", features = [] }
+
+# Serde — The standard Rust library for Serialization/Deserialization.
+# "Serialize" = converting Rust data → JSON (to send to the frontend JS)
+# "Deserialize" = converting JSON → Rust data (receiving from frontend JS)
+#
+# In PHP, you'd use json_encode() and json_decode().
+# In Rust, serde does this but with compile-time type checking —
+# meaning if your JSON structure is wrong, the compiler catches it
+# BEFORE the program runs. No more runtime "undefined index" errors.
+serde = { version = "1", features = ["derive"] }
+
+# Serde JSON — adds JSON-specific support to serde.
+# Lets us work with raw JSON strings when needed.
+serde_json = "1"
+
+# Reqwest — HTTP client for making network requests from Rust.
+# Used for the internet speed test (downloads a file natively,
+# bypassing the WebView's CSP restrictions).
+reqwest = { version = "0.12", features = ["blocking"] }
+
+# =============================================================================
+# [build-dependencies] — Crates needed only during compilation, not at runtime
+# =============================================================================
+# tauri-build runs during compilation to set up resources, icons, etc.
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
