@@ -17,6 +17,7 @@ Desktop.ini
 .idea/
 *.swp
 *.swo
+.codex
 
 # Logs
 *.log
