@@ -18,7 +18,7 @@
 // ---------------------------------------------------------------------------
 // SEARCH DEBOUNCE DELAY (same as original)
 // ---------------------------------------------------------------------------
-const searchDelay = 1000; // ms delay to let user finish typing
+const searchDelay = 700; // ms delay to let user finish typing
 
 $(function () {
   var searchAllTimer = null;
