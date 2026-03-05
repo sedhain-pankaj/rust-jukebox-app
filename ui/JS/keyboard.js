@@ -2,6 +2,7 @@ const displayKeyboard = true; // Set to false to disable the on-screen keyboard
 const timeBeforeClose = 60;
 
 const Keyboard = {
+  initialized: false,
   elements: {
     main: null,
     keysContainer: null,
@@ -26,6 +27,8 @@ const Keyboard = {
   _physicalInputHandler: null,
 
   init() {
+    if (this.initialized) return;
+
     // Create main elements
     this.elements.main = document.createElement("div");
     this.elements.keysContainer = document.createElement("div");
@@ -57,7 +60,11 @@ const Keyboard = {
 
     // Add event listeners for inputs added later
     document.addEventListener("click", (event) => {
-      if (event.target.tagName === "INPUT") {
+      if (
+        event.target.tagName === "INPUT" &&
+        event.target.type !== "hidden" &&
+        !event.target.disabled
+      ) {
         this.open(
           event.target.value,
           (currentValue) => {
@@ -69,6 +76,8 @@ const Keyboard = {
         );
       }
     });
+
+    this.initialized = true;
   },
 
   _createKeys() {
@@ -305,8 +314,8 @@ const Keyboard = {
 
   close() {
     this.properties.value = "";
-    this.eventHandlers.oninput = oninput;
-    this.eventHandlers.onclose = onclose;
+    this.eventHandlers.oninput = null;
+    this.eventHandlers.onclose = null;
     this.elements.main.classList.add("keyboard--hidden");
 
     // Remove physical keyboard listener from active input
@@ -337,22 +346,16 @@ $(document).ready(function () {
 
   Keyboard.init();
 
-  //close keyboard when clicked outside of it (except the input)
-  var keyboard = document.querySelector(".keyboard");
-  var search_all = document.querySelector("#search_all");
-  var search_karaoke = document.querySelector("#search_karaoke");
-  var search_query = document.querySelector("#search_query");
-  var clear_queue_input_div = document.querySelector("#dialog-confirm");
-
   document.addEventListener("click", function (e) {
-    //if the clicked element is not the keyboard or the search bar, close the keyboard
+    var keyboard = Keyboard.elements.main;
+    var activeInput = Keyboard.elements.activeInput;
+
+    // Close when clicking outside both the keyboard and active input.
     if (
+      keyboard &&
       !keyboard.classList.contains("keyboard--hidden") &&
       !keyboard.contains(e.target) &&
-      !search_all.contains(e.target) &&
-      !search_karaoke.contains(e.target) &&
-      !search_query.contains(e.target) &&
-      !clear_queue_input_div.contains(e.target)
+      !(activeInput && activeInput.contains(e.target))
     ) {
       Keyboard.close();
     }
