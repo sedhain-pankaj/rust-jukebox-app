@@ -74,12 +74,22 @@ mod songs;
 use songs::{Category, Song};
 
 // Import Path for filesystem path operations
+use std::collections::HashSet;
 use std::path::PathBuf;
 
 // Import the Manager trait — this gives us access to methods like
 // .asset_protocol_scope() on the AppHandle. Without this import,
 // Rust wouldn't know those methods exist (traits must be "in scope").
 use tauri::Manager;
+#[derive(serde::Serialize)]
+struct MusicStructureValidation {
+    valid: bool,
+    base_path: String,
+    music_path: String,
+    expected_folders: Vec<String>,
+    errors: Vec<String>,
+    warnings: Vec<String>,
+}
 
 // =============================================================================
 // TAURI IPC COMMANDS
@@ -209,6 +219,91 @@ fn debug_paths(app_handle: tauri::AppHandle) -> String {
     info
 }
 
+#[tauri::command]
+fn validate_music_structure(app_handle: tauri::AppHandle) -> MusicStructureValidation {
+    let base_path = get_music_base_path(&app_handle);
+    let music_path = base_path.join("music");
+    let mut errors: Vec<String> = Vec::new();
+    let mut warnings: Vec<String> = Vec::new();
+
+    let expected_folders: Vec<String> = songs::get_category_definitions()
+        .into_iter()
+        .filter_map(|(_, _, dir)| {
+            dir.trim_matches('/')
+                .split('/')
+                .nth(1)
+                .map(|name| name.to_string())
+        })
+        .collect();
+
+    if !music_path.exists() {
+        errors.push(format!("Missing music folder: {}", music_path.display()));
+    } else if !music_path.is_dir() {
+        errors.push(format!(
+            "music exists but is not a directory: {}",
+            music_path.display()
+        ));
+    }
+
+    let mut actual_folder_set: HashSet<String> = HashSet::new();
+    if errors.is_empty() {
+        match std::fs::read_dir(&music_path) {
+            Ok(entries) => {
+                for entry in entries.flatten() {
+                    let Ok(file_type) = entry.file_type() else {
+                        continue;
+                    };
+                    if file_type.is_dir() {
+                        actual_folder_set.insert(entry.file_name().to_string_lossy().to_string());
+                    }
+                }
+            }
+            Err(e) => {
+                errors.push(format!(
+                    "Cannot read music folder '{}': {}",
+                    music_path.display(),
+                    e
+                ));
+            }
+        }
+    }
+
+    let expected_folder_set: HashSet<String> = expected_folders.iter().cloned().collect();
+
+    for folder in &expected_folders {
+        if !actual_folder_set.contains(folder) {
+            errors.push(format!("Missing category folder: music/{}", folder));
+            continue;
+        }
+
+        let img_path = music_path.join(folder).join("img");
+        if !img_path.exists() {
+            errors.push(format!("Missing img folder: music/{}/img", folder));
+        } else if !img_path.is_dir() {
+            errors.push(format!(
+                "img exists but is not a directory: music/{}/img",
+                folder
+            ));
+        }
+    }
+
+    for folder in &actual_folder_set {
+        if !expected_folder_set.contains(folder) {
+            warnings.push(format!("Unexpected folder found in music/: {}", folder));
+        }
+    }
+
+    let valid = errors.is_empty();
+
+    MusicStructureValidation {
+        valid,
+        base_path: base_path.to_string_lossy().replace('\\', "/"),
+        music_path: music_path.to_string_lossy().replace('\\', "/"),
+        expected_folders,
+        errors,
+        warnings,
+    }
+}
 /// Returns songs for a single category by key.
 ///
 /// JavaScript usage:
@@ -451,6 +546,7 @@ fn main() {
         // too, otherwise JavaScript won't be able to call it.
         // -----------------------------------------------------------------
         .invoke_handler(tauri::generate_handler![
+            validate_music_structure,
             get_all_categories,
             get_songs_by_category,
             get_shuffle_paths,

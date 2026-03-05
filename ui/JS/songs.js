@@ -52,45 +52,50 @@ var convertFileSrc = window.__TAURI__.core.convertFileSrc;
 // Replaces the original $(document).ready() that made 10 AJAX calls.
 // Now it's ONE call to Rust that returns everything at once.
 $(document).ready(function () {
-  invoke("get_all_categories")
-    .then(function (categories) {
+  window.ensureMusicStructure().then(function (validation) {
+    if (!validation.valid) {
+      return;
+    }
 
-      // Build category buttons as DIRECT children of .buttons_leftblock.
-      // In the original PHP, the foreach output buttons directly inside the
-      // flex container — no wrapper div. We must do the same so that the
-      // CSS flex layout (height: 100% on each button) works correctly.
-      //
-      // We insert each button BEFORE the YouTube heading span, which keeps
-      // them in the same DOM position as the original PHP output.
-      var buttonsParent = document.querySelector(".buttons_leftblock");
-      var youtubeHeading = document.getElementById("youtube-heading");
+    invoke("get_all_categories")
+      .then(function (categories) {
+        // Build category buttons as DIRECT children of .buttons_leftblock.
+        // In the original PHP, the foreach output buttons directly inside the
+        // flex container - no wrapper div. We must do the same so that the
+        // CSS flex layout (height: 100% on each button) works correctly.
+        //
+        // We insert each button BEFORE the YouTube heading span, which keeps
+        // them in the same DOM position as the original PHP output.
+        var buttonsParent = document.querySelector(".buttons_leftblock");
+        var youtubeHeading = document.getElementById("youtube-heading");
 
-      categories.forEach(function (category) {
-        // Store in cache — same key structure as original but with JSON data
-        // instead of raw HTML. We'll generate HTML on first click (lazy).
-        cache[category.key] = {
-          songs: category.songs,
-          msg: category.label,
-          html: null, // built on first access (lazy rendering)
-        };
+        categories.forEach(function (category) {
+          // Store in cache - same key structure as original but with JSON data
+          // instead of raw HTML. We'll generate HTML on first click (lazy).
+          cache[category.key] = {
+            songs: category.songs,
+            msg: category.label,
+            html: null, // built on first access (lazy rendering)
+          };
 
-        // Create the category button (same class/id as original PHP output)
-        // and insert it directly into .buttons_leftblock before YouTube heading.
-        var button = document.createElement("button");
-        button.className = "button-left";
-        button.id = category.key;
-        button.textContent = category.label;
-        buttonsParent.insertBefore(button, youtubeHeading);
+          // Create the category button (same class/id as original PHP output)
+          // and insert it directly into .buttons_leftblock before YouTube heading.
+          var button = document.createElement("button");
+          button.className = "button-left";
+          button.id = category.key;
+          button.textContent = category.label;
+          buttonsParent.insertBefore(button, youtubeHeading);
+        });
+
+        // Count total songs for debugging
+        var totalSongs = categories.reduce(function (sum, cat) {
+          return sum + cat.songs.length;
+        }, 0);
+      })
+      .catch(function (error) {
+        console.error("Failed to load categories from Rust:", error);
       });
-
-      // Count total songs for debugging
-      var totalSongs = categories.reduce(function (sum, cat) {
-        return sum + cat.songs.length;
-      }, 0);
-    })
-    .catch(function (error) {
-      console.error("Failed to load categories from Rust:", error);
-    });
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -118,7 +123,7 @@ $(document).on("click", ".button-left", function () {
 // (<table> elements) so that all existing CSS styles apply unchanged.
 function showSongs(response, msg) {
   $("#div_img_video_loader").html(
-    "<h3>" + msg + "</h3><br>" + "<div id='showSongs'></div>"
+    "<h3>" + msg + "</h3><br>" + "<div id='showSongs'></div>",
   );
   $("#showSongs").append(response);
 }

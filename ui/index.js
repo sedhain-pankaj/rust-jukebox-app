@@ -185,29 +185,35 @@ function mejs_media_Player(func_restarter, sourceUrl) {
 // INITIALIZATION — Runs once when the DOM is ready
 // =============================================================================
 $(document).ready(function () {
-  // Scale the video element to fit the container (same as original)
-  video_scaler();
+  window.ensureMusicStructure().then(function (validation) {
+    if (!validation.valid) {
+      return;
+    }
 
-  // Disable text selection in the whole document (kiosk mode)
-  selectTextDisabled();
+    // Scale the video element to fit the container (same as original)
+    video_scaler();
 
-  // Set up search input toggling (All Songs vs Karaoke)
-  searchCondition();
+    // Disable text selection in the whole document (kiosk mode)
+    selectTextDisabled();
 
-  // Set up 80's auto-shuffle when idle
-  autoShuffle();
+    // Set up search input toggling (All Songs vs Karaoke)
+    searchCondition();
 
-  // Set up skip button handler
-  skipVideo();
+    // Set up 80's auto-shuffle when idle
+    autoShuffle();
 
-  // Auto-scroll queue to top after 10s of inactivity
-  queue_scroll_top();
+    // Set up skip button handler
+    skipVideo();
 
-  // Initialize jQuery UI volume slider
-  volume_slider();
+    // Auto-scroll queue to top after 10s of inactivity
+    queue_scroll_top();
 
-  // Set up volume +/- buttons and mute toggle
-  volume_changer();
+    // Initialize jQuery UI volume slider
+    volume_slider();
+
+    // Set up volume +/- buttons and mute toggle
+    volume_changer();
+  });
 });
 
 // ---------------------------------------------------------------------------
