@@ -1,22 +1,13 @@
 // =============================================================================
-// search.js — Search Songs (Tauri Version)
+// search.js - Search Songs (Tauri Version)
 // =============================================================================
 //
-// ORIGINAL (PHP version):
-//   Searched the raw HTML cache (response strings) using regex to extract
-//   <table> elements and match against <td> text content.
-//
-// NEW (Tauri version):
-//   Same approach — searches the HTML cache built by songs.js.
-//   The cache now stores both JSON data AND pre-built HTML.
-//   We search the HTML the same way the original did.
-//
-// NO AJAX NEEDED — all data is already in the cache from the
-// initial Rust IPC call. Search is instant and offline.
+// Searches cached song JSON directly (cache[key].songs) and renders results.
+// This avoids reparsing large HTML strings on each keystroke.
 // =============================================================================
 
 // ---------------------------------------------------------------------------
-// SEARCH DEBOUNCE DELAY (same as original)
+// SEARCH DEBOUNCE DELAY
 // ---------------------------------------------------------------------------
 const searchDelay = 700; // ms delay to let user finish typing
 
@@ -24,7 +15,7 @@ $(function () {
   var searchAllTimer = null;
   var searchKaraokeTimer = null;
 
-  // Debounced search for "All Songs" (same as original)
+  // Debounced search for "All Songs" 
   $("#search_all").on("click input", function () {
     clearTimeout(searchAllTimer);
     searchAllTimer = setTimeout(function () {
@@ -32,7 +23,7 @@ $(function () {
     }, searchDelay);
   });
 
-  // Debounced search for "Karaoke" only (same as original)
+  // Debounced search for "Karaoke" only
   $("#search_karaoke").on("click input", function () {
     clearTimeout(searchKaraokeTimer);
     searchKaraokeTimer = setTimeout(function () {
@@ -42,11 +33,8 @@ $(function () {
 });
 
 // ---------------------------------------------------------------------------
-// performSearch() — Search the cache and display results
+// performSearch() - Search the cache and display results
 // ---------------------------------------------------------------------------
-// Same function as original. The cache format changed (now has .html property)
-// but the search algorithm is identical: regex extract <table> elements,
-// match text in last <td>, highlight matches.
 function performSearch(searchId, excludeKey, searchMsg, searchKey) {
   searchKey = searchKey || null;
   var searchValue = $("#" + searchId).val();
@@ -63,64 +51,64 @@ function performSearch(searchId, excludeKey, searchMsg, searchKey) {
   }
 
   var searchLower = searchValue.toLowerCase();
-  var filteredResults = [];
+  var escapedSearch = searchValue.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  var highlightRegex = new RegExp("(" + escapedSearch + ")", "gi");
+  var convertFileSrcLocal = window.__TAURI__.core.convertFileSrc;
 
-  // Ensure HTML is built for all cached categories before searching
-  for (var key in cache) {
-    if (cache[key].html === null && cache[key].songs) {
-      cache[key].html = buildSongTableHtml(cache[key].songs);
-    }
-  }
+  var resultIndex = 1;
+  var resultsHtml = "";
 
-  // Search the HTML cache — same regex approach as original
   for (var key in cache) {
+    if (!Object.prototype.hasOwnProperty.call(cache, key)) continue;
+
     // Filter by search scope (all vs karaoke)
     if (searchKey && key !== searchKey) continue;
     if (!searchKey && key === excludeKey) continue;
 
-    // Extract each <table>...</table> as a string (same as original)
-    var htmlContent = cache[key].html || "";
-    var tables = htmlContent.match(/<table[^>]*>[\s\S]*?<\/table>/gi);
-    if (!tables) continue;
+    var category = cache[key];
+    var songs = (category && category.songs) || [];
 
-    for (var t = 0; t < tables.length; t++) {
-      var tableHtml = tables[t];
+    for (var i = 0; i < songs.length; i++) {
+      var song = songs[i];
+      var songName = song.name || "";
 
-      // Extract the last <td> content (song name)
-      var tdMatches = tableHtml.match(/<td[^>]*>([\s\S]*?)<\/td>/gi);
-      if (!tdMatches || tdMatches.length === 0) continue;
-
-      var lastTd = tdMatches[tdMatches.length - 1];
-      // Strip HTML tags to get plain text
-      var textContent = lastTd.replace(/<[^>]+>/g, "");
-
-      // Check if the song name matches the search
-      if (textContent.toLowerCase().includes(searchLower)) {
-        // Highlight matching text (same regex as original)
-        var regex = new RegExp(
-          "(" + searchValue.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + ")",
-          "gi"
-        );
-        var highlightedText = textContent.replace(
-          regex,
-          '<span style="background-color: #ffff99;">$1</span>'
-        );
-
-        // Replace the last td content with highlighted version
-        var lastTdIndex = tableHtml.lastIndexOf(lastTd);
-        var updatedTable =
-          tableHtml.substring(0, lastTdIndex) +
-          "<td>" +
-          highlightedText +
-          "</td>" +
-          tableHtml.substring(lastTdIndex + lastTd.length);
-        filteredResults.push(updatedTable);
+      if (!songName.toLowerCase().includes(searchLower)) {
+        continue;
       }
+
+      var highlightedName = songName.replace(
+        highlightRegex,
+        '<span style="background-color: #ffff99;">$1</span>'
+      );
+
+      var imgSrc = convertFileSrcLocal(song.thumbnail_abs);
+      var videoSrc = convertFileSrcLocal(song.path_abs);
+
+      resultsHtml +=
+        "<table onclick=\"queue_array_create('" +
+        escapeForOnclick(songName) +
+        "', '" +
+        escapeForOnclick(imgSrc) +
+        "', '" +
+        escapeForOnclick(videoSrc) +
+        "')\">" +
+        "<th id='index'>" +
+        resultIndex +
+        "</th>" +
+        "<th><img src='" +
+        imgSrc +
+        "' onerror=\"this.style.backgroundColor='#555'\"></th>" +
+        "<td>" +
+        highlightedName +
+        "</td>" +
+        "</table>";
+
+      resultIndex++;
     }
   }
 
   // Guard clause for no results
-  if (filteredResults.length === 0) {
+  if (resultIndex === 1) {
     $("#div_img_video_loader").html(
       "<h3>No results found for your search <br>" +
         "'" +
@@ -130,9 +118,6 @@ function performSearch(searchId, excludeKey, searchMsg, searchKey) {
     );
     return;
   }
-
-  // Build all results as a single string, then insert once
-  var resultsHtml = filteredResults.join("");
 
   $("#div_img_video_loader").html(
     "<h3> " +
@@ -146,11 +131,4 @@ function performSearch(searchId, excludeKey, searchMsg, searchKey) {
       resultsHtml +
       "</div>"
   );
-
-  // Re-number the search results (same as original)
-  $("#div_img_video_loader table").each(function (index) {
-    $(this)
-      .find("th#index")
-      .text(index + 1);
-  });
 }
