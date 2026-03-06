@@ -197,8 +197,10 @@ function shuffler(array, dir_msg) {
       closeTime: 5000,
     });
 
-    // Trigger auto-shuffle detection (same trick as original)
-    $("#queue_header").click();
+    // Trigger auto-shuffle immediately if the app is idle.
+    if (typeof triggerAutoShuffleIfIdle === "function") {
+      triggerAutoShuffleIfIdle();
+    }
     return;
   }
 

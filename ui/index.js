@@ -27,6 +27,39 @@ var mejsPlayerInstance = null;
 // Updated by mejs_media_Player() on each song change.
 var mejsCurrentRestarter = null;
 
+// Global UI activity handlers are bound once to avoid duplicate listeners
+// after player reset/re-init cycles.
+var fullscreenActivityTimeout = null;
+var fullscreenActivityBound = false;
+
+function scheduleFullscreenCheck() {
+  clearTimeout(fullscreenActivityTimeout);
+  fullscreenActivityTimeout = setTimeout(function () {
+    if (
+      mejsPlayerInstance &&
+      $("video").attr("src") != "" &&
+      !mejsPlayerInstance.isFullScreen &&
+      !mejsPlayerInstance.paused &&
+      !mejsPlayerInstance.error &&
+      mejsPlayerInstance.readyState == 4 &&
+      (!displayKeyboard || $(".keyboard--hidden").length)
+    ) {
+      mejsPlayerInstance.enterFullScreen();
+      $("video").attr("width", $("video").width());
+      $("video").attr("height", $("video").height());
+    }
+  }, 7000);
+}
+
+function bindFullscreenActivityListenersOnce() {
+  if (fullscreenActivityBound) {
+    return;
+  }
+  ["mousedown", "click", "touchstart", "keydown"].forEach(function (evt) {
+    document.addEventListener(evt, scheduleFullscreenCheck);
+  });
+  fullscreenActivityBound = true;
+}
 // ---------------------------------------------------------------------------
 // resetPlayer() — Tear down mejs and recreate a blank <video>
 // ---------------------------------------------------------------------------
@@ -108,30 +141,9 @@ function mejs_media_Player(func_restarter, sourceUrl) {
         applyCurrentVolumeToMedia();
       });
 
-      // Fullscreen auto-toggle on 7s inactivity (set up ONCE here)
-      var fsTimeout = false;
-      function checkActivity() {
-        clearTimeout(fsTimeout);
-        fsTimeout = setTimeout(function () {
-          if (
-            mejsPlayerInstance &&
-            $("video").attr("src") != "" &&
-            !mejsPlayerInstance.isFullScreen &&
-            !mejsPlayerInstance.paused &&
-            !mejsPlayerInstance.error &&
-            mejsPlayerInstance.readyState == 4 &&
-            (!displayKeyboard || $(".keyboard--hidden").length)
-          ) {
-            mejsPlayerInstance.enterFullScreen();
-            $("video").attr("width", $("video").width());
-            $("video").attr("height", $("video").height());
-          }
-        }, 7000);
-      }
-      ["mousedown", "mousemove", "click"].forEach(function (evt) {
-        document.addEventListener(evt, checkActivity);
-      });
-      checkActivity();
+      // Fullscreen auto-toggle on inactivity (bound once globally)
+      bindFullscreenActivityListenersOnce();
+      scheduleFullscreenCheck();
 
       // Click to exit fullscreen / resume playback
       document
@@ -277,22 +289,28 @@ function searchCondition() {
 // ---------------------------------------------------------------------------
 // autoShuffle() — Auto-start 80's shuffle when idle (same as original)
 // ---------------------------------------------------------------------------
+function triggerAutoShuffleIfIdle() {
+  if ($("video").attr("src") == "" && queue_array.length == 0) {
+    // shuffleAjaxCall is aliased to shuffleIpcCall in shuffle.js
+    shuffleAjaxCall("shuffle_80", 2);
+  }
+}
+
 function autoShuffle() {
   var timeout = false;
   function onActivity() {
     clearTimeout(timeout);
     timeout = setTimeout(function () {
-      if ($("video").attr("src") == "" && queue_array.length == 0) {
-        // shuffleAjaxCall is aliased to shuffleIpcCall in shuffle.js
-        shuffleAjaxCall("shuffle_80", 2);
-      }
-    }, 1);
+      triggerAutoShuffleIfIdle();
+    }, 250);
   }
 
-  ["mousedown", "mousemove", "click"].forEach(function (evt) {
+  ["mousedown", "click", "touchstart", "keydown"].forEach(function (evt) {
     document.addEventListener(evt, onActivity);
   });
-  onActivity();
+
+  // Immediate startup check (no delay).
+  triggerAutoShuffleIfIdle();
 }
 
 // ---------------------------------------------------------------------------
@@ -303,11 +321,11 @@ function queue_scroll_top() {
   function onActivity() {
     clearTimeout(timeout3);
     timeout3 = setTimeout(function () {
-      $("#right-block-down").animate({ scrollTop: 0 }, 500);
+      $("#right-block-down").stop(true, true).animate({ scrollTop: 0 }, 500);
     }, 10000);
   }
 
-  ["mousedown", "mousemove", "click"].forEach(function (evt) {
+  ["mousedown", "click", "touchstart", "keydown"].forEach(function (evt) {
     document.addEventListener(evt, onActivity);
   });
   onActivity();
@@ -339,7 +357,10 @@ function _setMediaVolume(vol) {
   var activeMedia = _getActiveMedia();
   var rawVideo = document.getElementById("video");
 
-  if (mejsPlayerInstance && typeof mejsPlayerInstance.setVolume === "function") {
+  if (
+    mejsPlayerInstance &&
+    typeof mejsPlayerInstance.setVolume === "function"
+  ) {
     mejsPlayerInstance.setVolume(volume);
     if (typeof mejsPlayerInstance.setMuted === "function") {
       mejsPlayerInstance.setMuted(isMuted);
@@ -445,5 +466,3 @@ function volume_changer() {
     }
   });
 }
-
-
