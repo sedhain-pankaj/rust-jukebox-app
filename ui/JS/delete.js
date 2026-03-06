@@ -19,7 +19,12 @@ function queue_array_remove(element, dir) {
     buttonColor: "#fd5c63",
     buttonAction: function () {
       var queue_array_index = queue_array.indexOf(dir);
-      queue_array.splice(queue_array_index, 1);
+      if (queue_array_index >= 0) {
+        queue_array.splice(queue_array_index, 1);
+      }
+      if (typeof queue_lookup !== "undefined") {
+        queue_lookup.delete(dir);
+      }
       $(element).closest(".queue_div").remove();
       renumber_Queue();
     },
@@ -82,6 +87,9 @@ function clearQueueAction() {
 
   $("#right-block-down").html("");
   queue_array.splice(0, queue_array.length);
+  if (typeof queue_lookup !== "undefined") {
+    queue_lookup.clear();
+  }
 
   setTimeout(function () {
     jquery_modal({
