@@ -1,18 +1,10 @@
 // =============================================================================
-// youtube.js — YouTube Search and Playback (Tauri Version)
-// =============================================================================
-//
-// MOSTLY IDENTICAL to original. The only change is that we check for
-// internet connectivity before making YouTube API calls, since the
-// jukebox might run completely offline.
-//
-// NOTE: YouTube functionality requires internet access. If the jukebox
-// is offline (which it usually is), this will show an error message.
-// In the future, we might remove YouTube entirely and just use local files.
+// youtube.js - YouTube Search and Playback (Tauri Version)
 // =============================================================================
 
+var youtubeIframeApiRequested = false;
+
 function search_youtube() {
-  // Create YouTube search UI in the song display area (same as original)
   $("#div_img_video_loader").html(
     "<input type='text' id='search_query' placeholder='Search YouTube' autocomplete='off'>" +
       "<button id='search_button'> &#9658; </button>" +
@@ -20,10 +12,9 @@ function search_youtube() {
       "API Keys provided by Google LLC. <br>" +
       "Copyright&copy; belongs to YouTube. <br><br>" +
       "<button class='button-left' id='speedtest' onclick='internet_speed()'> Perform SpeedTest </button>" +
-      "<p id='speed_result' style='font-size:clamp(1vw, 1.2vw, 2vw);'></p></h3>"
+      "<p id='speed_result' style='font-size:clamp(1vw, 1.2vw, 2vw);'></p></h3>",
   );
 
-  // Physical Enter key triggers YouTube search
   $("#search_query").on("keydown", function (e) {
     if (e.key === "Enter" && $(this).val() !== "") {
       e.preventDefault();
@@ -33,7 +24,6 @@ function search_youtube() {
   });
 }
 
-// Load YouTube search results (same as original)
 const load_youtube = () => {
   const search_query = $("#search_query").val();
   const search_query_url =
@@ -74,24 +64,35 @@ const load_youtube = () => {
           " '</h3><br>" +
           "<div id='search_results'>" +
           resultsHtml +
-          "</div>"
+          "</div>",
       );
 
       loadYoutubeIframeAPI();
-      $(".search_result_table").click(handleSearchResultClick);
     },
     error: function (error) {
       console.log(error);
       $("#div_img_video_loader").html(
         "<h3>Error: " +
           error.statusText +
-          "<br><br>YouTube requires internet connection.</h3>"
+          "<br><br>YouTube requires internet connection.</h3>",
       );
     },
   });
 };
 
 const loadYoutubeIframeAPI = () => {
+  if (youtubeIframeApiRequested || (window.YT && window.YT.Player)) {
+    return;
+  }
+
+  if (
+    document.querySelector("script[src='https://www.youtube.com/iframe_api']")
+  ) {
+    youtubeIframeApiRequested = true;
+    return;
+  }
+
+  youtubeIframeApiRequested = true;
   var tag = document.createElement("script");
   tag.src = "https://www.youtube.com/iframe_api";
   var firstScriptTag = document.getElementsByTagName("script")[0];
@@ -100,10 +101,12 @@ const loadYoutubeIframeAPI = () => {
 
 const handleSearchResultClick = function () {
   var yt_dir =
-    "https://www.youtube.com/embed/" +
-    $(this).find(".yt_video_id").text();
+    "https://www.youtube.com/embed/" + $(this).find(".yt_video_id").text();
 
-  if (queue_array.includes(yt_dir)) {
+  if (
+    (typeof queue_lookup !== "undefined" && queue_lookup.has(yt_dir)) ||
+    queue_array.includes(yt_dir)
+  ) {
     var position = queue_array.indexOf(yt_dir) + 1;
     jquery_modal({
       message:
@@ -125,20 +128,23 @@ const handleSearchResultClick = function () {
     return;
   }
 
-  // Add YouTube video to queue
   var yt_title = $(this).find(".yt_video_title").text();
   var yt_img = $(this).find("img").attr("src");
   queue_array_create(yt_title, yt_img, yt_dir);
 };
+
+$(document).on("click", ".search_result_table", handleSearchResultClick);
 
 function internet_speed() {
   $("#speed_result").html(
     "Wait <br> <i class='material-icons' style='font-size:clamp(1vw, 4vw, 5vw);'>network_check</i>",
   );
 
-  var icon = "<i class='material-icons' style='font-size:clamp(1vw, 4vw, 5vw);'>";
+  var icon =
+    "<i class='material-icons' style='font-size:clamp(1vw, 4vw, 5vw);'>";
 
-  window.__TAURI__.core.invoke("speed_test")
+  window.__TAURI__.core
+    .invoke("speed_test")
     .then(function (result) {
       var quality;
       var speed = parseFloat(result.speed_mbps);
