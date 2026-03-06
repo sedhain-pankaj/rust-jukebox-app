@@ -75,6 +75,7 @@ function mejs_media_Player(func_restarter, sourceUrl) {
     // mejs's setSrc handles renderer switching (html5 ↔ YouTube) internally.
     mejsPlayerInstance.setSrc(sourceUrl);
     mejsPlayerInstance.load();
+    applyCurrentVolumeToMedia();
     mejsPlayerInstance.play();
     return;
   }
@@ -98,13 +99,13 @@ function mejs_media_Player(func_restarter, sourceUrl) {
 
       // Volume sync
       mediaElement.addEventListener("play", function () {
-        document.getElementById("video").volume = $("#vol").html() / 100;
+        applyCurrentVolumeToMedia();
       });
       mediaElement.addEventListener("rendererready", function () {
-        document.getElementById("video").volume = $("#vol").html() / 100;
+        applyCurrentVolumeToMedia();
       });
       mediaElement.addEventListener("loadedmetadata", function () {
-        document.getElementById("video").volume = $("#vol").html() / 100;
+        applyCurrentVolumeToMedia();
       });
 
       // Fullscreen auto-toggle on 7s inactivity (set up ONCE here)
@@ -243,7 +244,7 @@ function video_scaler() {
   // Set initial volume on the video element
   var videoEl = document.getElementById("video");
   if (videoEl) {
-    videoEl.volume = $("#vol").html() / 100;
+    applyCurrentVolumeToMedia();
   }
 }
 
@@ -324,14 +325,51 @@ function _cacheVolumeElements() {
   videoEl = document.getElementById("video");
 }
 
+function _getActiveMedia() {
+  if (mejsPlayerInstance && mejsPlayerInstance.media) {
+    return mejsPlayerInstance.media;
+  }
+  return document.getElementById("video");
+}
+
+function _setMediaVolume(vol) {
+  var safeVol = Math.max(0, Math.min(100, parseInt(vol, 10) || 0));
+  var volume = safeVol / 100;
+  var isMuted = safeVol === 0;
+  var activeMedia = _getActiveMedia();
+  var rawVideo = document.getElementById("video");
+
+  if (mejsPlayerInstance && typeof mejsPlayerInstance.setVolume === "function") {
+    mejsPlayerInstance.setVolume(volume);
+    if (typeof mejsPlayerInstance.setMuted === "function") {
+      mejsPlayerInstance.setMuted(isMuted);
+    }
+  } else if (activeMedia) {
+    activeMedia.volume = volume;
+    activeMedia.muted = isMuted;
+  }
+
+  if (rawVideo) {
+    rawVideo.volume = volume;
+    rawVideo.muted = isMuted;
+  }
+}
+
+function applyCurrentVolumeToMedia() {
+  var vol = parseInt($("#vol").html(), 10);
+  if (isNaN(vol)) {
+    vol = 50;
+  }
+  _setMediaVolume(vol);
+}
+
 function _applyVolumeStyle(vol) {
+  _cacheVolumeElements();
   if (vol == 0) {
-    videoEl.muted = true;
     $muteEl.html("volume_off").css("color", "#7e0000");
     $sliderEl.css("background-color", "#7e0000");
     $volEl.css("color", "#7e0000");
   } else {
-    videoEl.muted = false;
     $muteEl.html("volume_up").css("color", "#155d62");
     $sliderEl.css("background-color", "white");
     $volEl.css("color", "#033e30");
@@ -348,7 +386,7 @@ function volume_slider() {
     step: 1,
     slide: function (event, ui) {
       $volEl.html(ui.value);
-      videoEl.volume = ui.value / 100;
+      _setMediaVolume(ui.value);
       _applyVolumeStyle(ui.value);
     },
   });
@@ -357,25 +395,25 @@ function volume_slider() {
 function volume_changer() {
   // Volume down button
   $("#vol_down").click(function () {
-    var vol = parseInt($volEl.html());
+    var vol = parseInt($volEl.html(), 10);
     if (vol > 0) {
       vol--;
       $sliderEl.slider("value", vol);
-      videoEl.volume = vol / 100;
       $volEl.html(vol);
+      _setMediaVolume(vol);
       _applyVolumeStyle(vol);
     }
   });
 
   // Volume up button
   $("#vol_up").click(function () {
-    var vol = parseInt($volEl.html());
+    var vol = parseInt($volEl.html(), 10);
     if (vol < 100) {
       vol++;
       $sliderEl.slider("value", vol);
-      videoEl.volume = vol / 100;
       $volEl.html(vol);
     }
+    _setMediaVolume(vol);
     _applyVolumeStyle(vol);
   });
 
@@ -384,19 +422,19 @@ function volume_changer() {
   var mutedByButton = false;
 
   $muteEl.click(function () {
-    var vol = parseInt($volEl.html());
+    var vol = parseInt($volEl.html(), 10);
     if (vol > 0) {
       preMuteVolume = vol;
       mutedByButton = true;
       $sliderEl.slider("value", 0);
-      videoEl.volume = 0;
       $volEl.html(0);
+      _setMediaVolume(0);
       _applyVolumeStyle(0);
     } else if (mutedByButton) {
       mutedByButton = false;
       $sliderEl.slider("value", preMuteVolume);
-      videoEl.volume = preMuteVolume / 100;
       $volEl.html(preMuteVolume);
+      _setMediaVolume(preMuteVolume);
       _applyVolumeStyle(preMuteVolume);
     } else {
       jquery_modal({
@@ -407,3 +445,5 @@ function volume_changer() {
     }
   });
 }
+
+
