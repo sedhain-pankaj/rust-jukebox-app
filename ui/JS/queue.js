@@ -19,6 +19,7 @@
 
 // Array to hold songs that are queued (same as original)
 var queue_array = [];
+var queue_lookup = new Set();
 
 // ---------------------------------------------------------------------------
 // queue_array_create() — Add a song to the queue
@@ -30,7 +31,7 @@ var queue_array = [];
 //   dir = video file URL (Tauri asset URL)
 function queue_array_create(filename, img, dir) {
   // Guard clause: if dir is already in queue_array, display message
-  if (queue_array.includes(dir)) {
+  if (queue_lookup.has(dir)) {
     var position = queue_array.indexOf(dir) + 1;
     jquery_modal({
       message:
@@ -56,6 +57,7 @@ function queue_array_create(filename, img, dir) {
 
   // Passed guard clauses — add to queue
   queue_array.push(dir);
+  queue_lookup.add(dir);
   var queueNumber = queue_array.length;
 
   // Build queue item HTML (identical structure to original)
@@ -86,7 +88,7 @@ function queue_array_create(filename, img, dir) {
   document.getElementById("right-block-down").appendChild(queueDiv);
 
   // Scroll to bottom of queue when a song is added
-  $("#right-block-down").animate(
+  $("#right-block-down").stop(true, true).animate(
     { scrollTop: $("#right-block-down").prop("scrollHeight") },
     500
   );
@@ -139,7 +141,8 @@ function play_Queue() {
     .text();
 
   // Remove the played song from queue_array and the DOM
-  queue_array.shift();
+  var playedDir = queue_array.shift();
+  queue_lookup.delete(playedDir);
   var firstQueueItem = $(".queue_div").first();
   firstQueueItem.remove();
   renumber_Queue();
@@ -181,7 +184,7 @@ function queue_move_to_top(element, dir) {
       var queueDiv = $(element).closest(".queue_div");
       queueDiv.prependTo("#right-block-down");
       renumber_Queue();
-      $("#right-block-down").animate({ scrollTop: 0 }, 500);
+      $("#right-block-down").stop(true, true).animate({ scrollTop: 0 }, 500);
     },
   });
 }
