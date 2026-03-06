@@ -83,25 +83,13 @@ function performSearch(searchId, excludeKey, searchMsg, searchKey) {
 
       var imgSrc = convertFileSrcLocal(song.thumbnail_abs);
       var videoSrc = convertFileSrcLocal(song.path_abs);
-
-      resultsHtml +=
-        "<table onclick=\"queue_array_create('" +
-        escapeForOnclick(songName) +
-        "', '" +
-        escapeForOnclick(imgSrc) +
-        "', '" +
-        escapeForOnclick(videoSrc) +
-        "')\">" +
-        "<th id='index'>" +
-        resultIndex +
-        "</th>" +
-        "<th><img src='" +
-        imgSrc +
-        "' onerror=\"this.style.backgroundColor='#555'\"></th>" +
-        "<td>" +
-        highlightedName +
-        "</td>" +
-        "</table>";
+      resultsHtml += buildSongTableRowHtml(
+        resultIndex,
+        songName,
+        imgSrc,
+        videoSrc,
+        highlightedName,
+      );
 
       resultIndex++;
     }
