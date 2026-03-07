@@ -65,7 +65,8 @@ This is a rust port of my other project `Craigs Music Player` which was bulit wi
 ## Prerequisites
 
 - **Rust** — Install from [https://rustup.rs](https://rustup.rs)
-- **Music files** — You need your own music/video library (not included in the repo due to size)
+- **Music files** — You need your own music/video library (not included in the repo due to size). A guard is present in `main.rs` to check for the `music/` folder and prompt you to create it if missing.
+- **Missing variables** - _YT_API_KEY_ from `youtube.js` needed for searching youtube and _queue_clear_passowrd_ from `delete.js` needed to clear the whole queue. Create `ui\JS\config.js` file with these variables.
 
 ## Setting Up the Music Library
 
