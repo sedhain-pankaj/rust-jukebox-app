@@ -18,6 +18,9 @@
     if (active) {
       document.getElementById("admin-root").classList.remove("hidden");
       document.getElementById("app-root").classList.add("hidden");
+      if (typeof window.selectTextDisabled === "function") {
+        window.selectTextDisabled("#admin-root");
+      }
     }
   }
 
@@ -284,12 +287,58 @@
       }
     });
 
+    $(document).on("click", "#admin-exit", function () {
+      window.__adminMode.active = false;
+      document.getElementById("admin-root").classList.add("hidden");
+      document.getElementById("app-root").classList.remove("hidden");
+      if (typeof window.selectTextDisabled === "function") {
+        window.selectTextDisabled();
+      }
+      if (typeof window.ensureMusicStructure === "function") {
+        window.ensureMusicStructure().then(function (validation) {
+          if (!validation.valid) {
+            return;
+          }
+          if (typeof window.loadCategoriesOnce === "function") {
+            window.loadCategoriesOnce();
+          }
+          if (typeof window.video_scaler === "function") {
+            window.video_scaler();
+          }
+          if (typeof window.searchCondition === "function") {
+            window.searchCondition();
+          }
+          if (typeof window.autoShuffle === "function") {
+            window.autoShuffle();
+          }
+          if (typeof window.skipVideo === "function") {
+            window.skipVideo();
+          }
+          if (typeof window.queue_scroll_top === "function") {
+            window.queue_scroll_top();
+          }
+          if (typeof window.volume_slider === "function") {
+            window.volume_slider();
+          }
+          if (typeof window.volume_changer === "function") {
+            window.volume_changer();
+          }
+        });
+      }
+    });
+
     $(document).on("click", "#admin-manual-confirm", function () {
       var selections = collectManualSelections();
       confirmCopy(
         selections,
         selections.length + " songs selected. CONFIRM transfer?",
       );
+    });
+
+    $(document).on("click", "#admin-manual-cancel", function () {
+      document.getElementById("admin-page-manual").classList.add("hidden");
+      document.getElementById("admin-page-chooser").classList.remove("hidden");
+      resetAutoTimerIfNeeded();
     });
 
     $(document).on("click", "#admin-scroll-up", function () {

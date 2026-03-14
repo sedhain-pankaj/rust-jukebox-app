@@ -273,11 +273,12 @@ function video_scaler() {
 // ---------------------------------------------------------------------------
 // selectTextDisabled() — Prevent text selection and image dragging (kiosk)
 // ---------------------------------------------------------------------------
-function selectTextDisabled() {
-  $(document).on("selectstart", function (e) {
+function selectTextDisabled(scope) {
+  var $scope = scope ? $(scope) : $(document);
+  $scope.on("selectstart", function (e) {
     e.preventDefault();
   });
-  $(document).on("dragstart", function (e) {
+  $scope.on("dragstart", function (e) {
     e.preventDefault();
   });
 }

@@ -8,6 +8,40 @@ var cache = {};
 
 var invoke = window.__TAURI__.core.invoke;
 var convertFileSrc = window.__TAURI__.core.convertFileSrc;
+var categoriesLoaded = false;
+
+function loadCategoriesOnce() {
+  if (categoriesLoaded) {
+    return;
+  }
+  categoriesLoaded = true;
+
+  invoke("get_all_categories")
+    .then(function (categories) {
+      var buttonsParent = document.querySelector(".buttons_leftblock");
+      var youtubeHeading = document.getElementById("youtube-heading");
+
+      categories.forEach(function (category) {
+        cache[category.key] = {
+          songs: category.songs,
+          msg: category.label,
+          html: null,
+        };
+
+        var button = document.createElement("button");
+        button.className = "button-left";
+        button.id = category.key;
+        button.textContent = category.label;
+        buttonsParent.insertBefore(button, youtubeHeading);
+      });
+    })
+    .catch(function (error) {
+      console.error("Failed to load categories from Rust:", error);
+      categoriesLoaded = false;
+    });
+}
+
+window.loadCategoriesOnce = loadCategoriesOnce;
 
 $(document).ready(function () {
   var adminReady = window.__adminModeReady
@@ -24,30 +58,9 @@ $(document).ready(function () {
         return;
       }
 
-      invoke("get_all_categories")
-        .then(function (categories) {
-          var buttonsParent = document.querySelector(".buttons_leftblock");
-          var youtubeHeading = document.getElementById("youtube-heading");
-
-          categories.forEach(function (category) {
-            cache[category.key] = {
-              songs: category.songs,
-              msg: category.label,
-              html: null,
-            };
-
-            var button = document.createElement("button");
-            button.className = "button-left";
-            button.id = category.key;
-            button.textContent = category.label;
-            buttonsParent.insertBefore(button, youtubeHeading);
-          });
-        })
-        .catch(function (error) {
-          console.error("Failed to load categories from Rust:", error);
-        });
-    });
+    loadCategoriesOnce();
   });
+});
 });
 
 $(document).on("click", ".button-left", function () {
