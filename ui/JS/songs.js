@@ -10,33 +10,43 @@ var invoke = window.__TAURI__.core.invoke;
 var convertFileSrc = window.__TAURI__.core.convertFileSrc;
 
 $(document).ready(function () {
-  window.ensureMusicStructure().then(function (validation) {
-    if (!validation.valid) {
+  var adminReady = window.__adminModeReady
+    ? window.__adminModeReady()
+    : Promise.resolve({ active: false });
+
+  adminReady.then(function () {
+    if (window.__adminMode && window.__adminMode.active) {
       return;
     }
 
-    invoke("get_all_categories")
-      .then(function (categories) {
-        var buttonsParent = document.querySelector(".buttons_leftblock");
-        var youtubeHeading = document.getElementById("youtube-heading");
+    window.ensureMusicStructure().then(function (validation) {
+      if (!validation.valid) {
+        return;
+      }
 
-        categories.forEach(function (category) {
-          cache[category.key] = {
-            songs: category.songs,
-            msg: category.label,
-            html: null,
-          };
+      invoke("get_all_categories")
+        .then(function (categories) {
+          var buttonsParent = document.querySelector(".buttons_leftblock");
+          var youtubeHeading = document.getElementById("youtube-heading");
 
-          var button = document.createElement("button");
-          button.className = "button-left";
-          button.id = category.key;
-          button.textContent = category.label;
-          buttonsParent.insertBefore(button, youtubeHeading);
+          categories.forEach(function (category) {
+            cache[category.key] = {
+              songs: category.songs,
+              msg: category.label,
+              html: null,
+            };
+
+            var button = document.createElement("button");
+            button.className = "button-left";
+            button.id = category.key;
+            button.textContent = category.label;
+            buttonsParent.insertBefore(button, youtubeHeading);
+          });
+        })
+        .catch(function (error) {
+          console.error("Failed to load categories from Rust:", error);
         });
-      })
-      .catch(function (error) {
-        console.error("Failed to load categories from Rust:", error);
-      });
+    });
   });
 });
 
