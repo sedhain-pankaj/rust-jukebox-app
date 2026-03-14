@@ -190,6 +190,11 @@ fn is_video_file(filename: &str) -> bool {
         })
 }
 
+/// Public wrapper for video filename detection (used by admin USB scan).
+pub fn is_video_file_name(filename: &str) -> bool {
+    is_video_file(filename)
+}
+
 /// Scans a directory and returns all video files as Song structs.
 ///
 /// This is the Rust equivalent of PHP's get_video_files() + img_video_loader()
