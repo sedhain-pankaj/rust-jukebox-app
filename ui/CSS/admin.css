@@ -1,0 +1,261 @@
+.hidden {
+  display: none;
+}
+
+#admin-root {
+  position: fixed;
+  inset: 0;
+  background: #0f1412;
+  color: #f3f3f3;
+  font-family: Segoe UI, Arial, sans-serif;
+  z-index: 2000;
+}
+
+#admin-root.hidden {
+  display: none;
+}
+
+#admin-header,
+#admin-footer {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 6%;
+  background: #0a3224;
+  color: #f3f3f3;
+  display: flex;
+  align-items: center;
+  padding: 0 2vw;
+  font-size: clamp(1.2vw, 1.6vw, 2.2vw);
+  font-weight: bold;
+}
+
+#admin-header {
+  top: 0;
+}
+
+#admin-footer {
+  bottom: 0;
+  font-size: clamp(0.8vw, 1.1vw, 1.4vw);
+  font-weight: normal;
+}
+
+#admin-body {
+  position: absolute;
+  top: 6%;
+  bottom: 6%;
+  left: 0;
+  right: 0;
+  padding: 1.5vw 2vw;
+}
+
+.admin-page {
+  position: absolute;
+  inset: 0;
+}
+
+.admin-page.hidden {
+  display: none;
+}
+
+.admin-mode-options {
+  display: grid;
+  gap: 1vw;
+  margin-bottom: 1vw;
+}
+
+.admin-mode-option {
+  display: flex;
+  gap: 1vw;
+  align-items: center;
+  background: #1a2a24;
+  border: 0.2vw solid #2b5b45;
+  border-radius: 1vw;
+  padding: 1vw;
+  cursor: pointer;
+}
+
+.admin-mode-option input {
+  transform: scale(1.4);
+}
+
+.admin-mode-title {
+  font-size: clamp(1.2vw, 1.8vw, 2.6vw);
+  font-weight: bold;
+}
+
+.admin-mode-desc {
+  font-size: clamp(0.8vw, 1.1vw, 1.4vw);
+  color: #d6d6d6;
+  margin-top: 0.3vw;
+}
+
+#admin-summary-list {
+  border: 0.2vw solid #2b5b45;
+  border-radius: 1vw;
+  padding: 1vw;
+  height: 48%;
+  overflow-y: auto;
+  overflow-x: hidden;
+  background: #111a17;
+}
+
+.admin-summary-line {
+  font-size: clamp(0.8vw, 1.1vw, 1.4vw);
+  margin-bottom: 0.4vw;
+  color: #cde7d8;
+}
+
+.admin-summary-line.missing {
+  color: #ff6b6b;
+}
+
+#admin-actions {
+  position: absolute;
+  right: 2vw;
+  bottom: 2vw;
+}
+
+#admin-manual-actions {
+  position: absolute;
+  right: 2vw;
+  bottom: 2vw;
+}
+
+.admin-confirm-btn {
+  cursor: pointer;
+  font-size: clamp(1vw, 1.5vw, 2vw);
+  font-weight: bold;
+  color: #033e30;
+  border: 0.12vw solid #315f53;
+  border-radius: 1vw;
+  background-color: rgba(168, 164, 164, 0.8);
+  padding: 0.6vw 2vw;
+}
+
+.admin-confirm-btn:hover {
+  background-color: #0f9171;
+  color: #fff;
+  box-shadow: 3px 3px 10px #d3cccc;
+  transform: translateX(-1px);
+}
+
+.admin-confirm-btn:active {
+  transform: translateX(1px);
+  box-shadow: 0px 0px 0px #d3cccc;
+}
+
+#admin-manual-header {
+  font-size: clamp(1.2vw, 1.8vw, 2.4vw);
+  font-weight: bold;
+  color: #cde7d8;
+  margin-bottom: 0.8vw;
+}
+
+#admin-manual-list-wrapper {
+  position: absolute;
+  top: 8%;
+  bottom: 12%;
+  left: 2%;
+  right: 2%;
+}
+
+#admin-manual-list {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 10%;
+  bottom: 0;
+  border: 0.25vw solid #0f9171;
+  border-radius: 0.8vw;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 1vw;
+  background: #111a17;
+}
+
+#admin-manual-scroll {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 10%;
+  bottom: 0;
+}
+
+.admin-scroll-btn {
+  background-color: #4100f4;
+  border: 0.1vw solid #315f53;
+  border-radius: 1vw;
+  color: white;
+  position: absolute;
+  left: 0;
+  right: 0;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  width: 100%;
+  overflow: hidden;
+}
+
+.admin-scroll-up {
+  top: 0;
+  bottom: 85%;
+}
+
+.admin-scroll-down {
+  top: 85%;
+  bottom: 0;
+}
+
+.admin-scroll-btn:hover {
+  background-color: #0f9171;
+  box-shadow: 3px 3px 10px #d3cccc;
+  transform: translateX(-1px);
+}
+
+.admin-scroll-btn:active {
+  background-color: #0f9171;
+  transform: translateX(1px);
+  box-shadow: 0px 0px 0px #d3cccc;
+}
+
+.admin-folder-section {
+  margin-bottom: 1.2vw;
+  padding-bottom: 1vw;
+  border-bottom: 0.2vw solid #29463b;
+}
+
+.admin-folder-title {
+  font-size: clamp(1.2vw, 1.6vw, 2.2vw);
+  font-weight: bold;
+  color: #9bd0b7;
+  margin-bottom: 0.6vw;
+}
+
+.admin-song-row {
+  display: flex;
+  align-items: center;
+  gap: 0.8vw;
+  padding: 0.4vw 0.6vw;
+  border: 0.1vw solid #30443b;
+  border-radius: 0.6vw;
+  margin-bottom: 0.4vw;
+  background: #1a2320;
+  color: #f3f3f3;
+  font-size: clamp(0.9vw, 1.2vw, 1.6vw);
+}
+
+.admin-song-row input {
+  transform: scale(1.2);
+}
+
+.admin-song-row.disabled {
+  opacity: 0.5;
+  background: #2c2c2c;
+  cursor: not-allowed;
+}
+
+.admin-warning {
+  color: #ff6b6b;
+  font-weight: bold;
+}

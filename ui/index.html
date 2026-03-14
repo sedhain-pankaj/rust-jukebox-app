@@ -47,6 +47,7 @@
     <link rel="stylesheet" type="text/css" href="/CSS/right-block-scroll.css">
     <link rel="stylesheet" type="text/css" href="/CSS/materialUI-icons.css">
     <link rel="stylesheet" type="text/css" href="/CSS/mejs.css">
+    <link rel="stylesheet" type="text/css" href="/CSS/admin.css">
 
     <!-- =====================================================================
          JS — Same libraries, same order as original.
@@ -66,6 +67,7 @@
     <script src="/JS/config.js" defer></script>
     <script src="/JS/mejs.js" defer></script>
     <script src="/JS/modal.js" defer></script>
+    <script src="/JS/admin.js" defer></script>
     <script src="/JS/songs.js" defer></script>
     <script src="/JS/queue.js" defer></script>
     <script src="/JS/youtube.js" defer></script>
@@ -81,6 +83,56 @@
 </head>
 
 <body>
+    <div id="admin-root" class="hidden">
+        <div id="admin-header">
+            <span>Admin Mode</span>
+        </div>
+        <div id="admin-body">
+            <div id="admin-page-chooser" class="admin-page">
+                <div class="admin-mode-options">
+                    <label class="admin-mode-option">
+                        <input type="radio" name="admin-mode" value="auto" checked>
+                        <div class="admin-mode-text">
+                            <div class="admin-mode-title">AUTO Mode</div>
+                            <div class="admin-mode-desc">Auto will start in <span id="admin-auto-countdown">10</span>s if no input is received.</div>
+                        </div>
+                    </label>
+                    <label class="admin-mode-option">
+                        <input type="radio" name="admin-mode" value="manual">
+                        <div class="admin-mode-text">
+                            <div class="admin-mode-title">Manual Mode</div>
+                            <div class="admin-mode-desc">Pick individual songs to transfer.</div>
+                        </div>
+                    </label>
+                </div>
+                <div id="admin-summary-list"></div>
+                <div id="admin-actions">
+                    <button id="admin-confirm" class="admin-confirm-btn">Confirm</button>
+                </div>
+            </div>
+            <div id="admin-page-manual" class="admin-page hidden">
+                <div id="admin-manual-header">Manual Selection</div>
+                <div id="admin-manual-list-wrapper">
+                    <div id="admin-manual-list"></div>
+                    <div id="admin-manual-scroll">
+                        <button id="admin-scroll-up" class="admin-scroll-btn admin-scroll-up">
+                            <i class="material-icons">arrow_circle_up</i>
+                        </button>
+                        <button id="admin-scroll-down" class="admin-scroll-btn admin-scroll-down">
+                            <i class="material-icons">arrow_circle_down</i>
+                        </button>
+                    </div>
+                </div>
+                <div id="admin-manual-actions">
+                    <button id="admin-manual-confirm" class="admin-confirm-btn">Confirm</button>
+                </div>
+            </div>
+        </div>
+        <div id="admin-footer">
+            <span>Craig Williams Promotions. Call 1300-888-581 for Support.</span>
+        </div>
+    </div>
+    <div id="app-root">
 
     <!-- =================================================================
          LEFT BLOCK — Shuffle, Categories, YouTube, Volume
@@ -275,5 +327,6 @@
         <input type='hidden' id="search_query" name="search_query" placeholder="Search YouTube" autocomplete="off">
     </div>
 
+    </div>
 </body>
 </html>
