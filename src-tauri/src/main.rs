@@ -75,7 +75,8 @@ use songs::{Category, Song};
 
 // Import Path for filesystem path operations
 use std::collections::HashSet;
-use std::path::PathBuf;
+use std::fs;
+use std::path::{Path, PathBuf};
 
 // Import the Manager trait — this gives us access to methods like
 // .asset_protocol_scope() on the AppHandle. Without this import,
@@ -89,6 +90,64 @@ struct MusicStructureValidation {
     expected_folders: Vec<String>,
     errors: Vec<String>,
     warnings: Vec<String>,
+}
+
+#[derive(serde::Serialize)]
+struct AdminDriveDetection {
+    found: bool,
+    root_path: String,
+    music_path: String,
+    reason: String,
+}
+
+#[derive(serde::Serialize)]
+struct AdminFolderSummary {
+    folder: String,
+    label: String,
+    new_with_thumbs: usize,
+    new_missing_thumbs: usize,
+}
+
+#[derive(serde::Serialize)]
+struct AdminSongEntry {
+    folder: String,
+    label: String,
+    name: String,
+    filename: String,
+    video_rel: String,
+    thumbnail_rel: String,
+    is_new: bool,
+    has_thumbnail: bool,
+    is_selectable: bool,
+}
+
+#[derive(serde::Serialize)]
+struct AdminFolderSongs {
+    folder: String,
+    label: String,
+    songs: Vec<AdminSongEntry>,
+}
+
+#[derive(serde::Serialize)]
+struct AdminUsbScanResult {
+    valid_structure: bool,
+    errors: Vec<String>,
+    per_folder_counts: Vec<AdminFolderSummary>,
+    songs_by_folder: Vec<AdminFolderSongs>,
+}
+
+#[derive(serde::Deserialize)]
+struct AdminCopySelection {
+    folder: String,
+    filename: String,
+    thumbnail_filename: String,
+}
+
+#[derive(serde::Serialize)]
+struct AdminCopyResult {
+    copied: usize,
+    skipped: usize,
+    errors: Vec<String>,
 }
 
 // =============================================================================
@@ -304,6 +363,286 @@ fn validate_music_structure(app_handle: tauri::AppHandle) -> MusicStructureValid
         warnings,
     }
 }
+
+#[tauri::command]
+fn detect_admin_drive() -> AdminDriveDetection {
+    let reason = String::from("admin.key not found on any drive.");
+
+    for letter in 'D'..='Z' {
+        let root = PathBuf::from(format!("{}:\\", letter));
+        if !root.exists() {
+            continue;
+        }
+        let key_path = root.join("admin.key");
+        if key_path.exists() {
+            let music_path = root.join("music");
+            return AdminDriveDetection {
+                found: true,
+                root_path: root.to_string_lossy().replace('\\', "/"),
+                music_path: music_path.to_string_lossy().replace('\\', "/"),
+                reason: String::new(),
+            };
+        }
+    }
+
+    AdminDriveDetection {
+        found: false,
+        root_path: String::new(),
+        music_path: String::new(),
+        reason,
+    }
+}
+
+#[tauri::command]
+fn scan_admin_usb(music_path: String, app_handle: tauri::AppHandle) -> AdminUsbScanResult {
+    let usb_music = PathBuf::from(&music_path);
+    let mut errors: Vec<String> = Vec::new();
+
+    if !usb_music.exists() {
+        errors.push(format!("Missing USB music folder: {}", usb_music.display()));
+    } else if !usb_music.is_dir() {
+        errors.push(format!(
+            "USB music path is not a directory: {}",
+            usb_music.display()
+        ));
+    }
+
+    let definitions = songs::get_category_definitions();
+
+    if errors.is_empty() {
+        for (_, _, dir) in &definitions {
+            let Some(folder_name) = folder_name_from_dir(dir) else {
+                continue;
+            };
+            let folder_path = usb_music.join(&folder_name);
+            if !folder_path.exists() {
+                errors.push(format!(
+                    "Missing category folder on USB: {}/{}",
+                    usb_music.display(),
+                    folder_name
+                ));
+                continue;
+            }
+            if !folder_path.is_dir() {
+                errors.push(format!(
+                    "Category path is not a directory on USB: {}",
+                    folder_path.display()
+                ));
+                continue;
+            }
+            let img_path = folder_path.join("img");
+            if !img_path.exists() {
+                errors.push(format!(
+                    "Missing img folder on USB: {}/img",
+                    folder_path.display()
+                ));
+            } else if !img_path.is_dir() {
+                errors.push(format!(
+                    "img path is not a directory on USB: {}",
+                    img_path.display()
+                ));
+            }
+        }
+    }
+
+    let mut per_folder_counts: Vec<AdminFolderSummary> = Vec::new();
+    let mut songs_by_folder: Vec<AdminFolderSongs> = Vec::new();
+
+    if !errors.is_empty() {
+        return AdminUsbScanResult {
+            valid_structure: false,
+            errors,
+            per_folder_counts,
+            songs_by_folder,
+        };
+    }
+
+    let local_music = get_music_base_path(&app_handle).join("music");
+
+    for (_, label, dir) in definitions {
+        let folder_name = folder_name_from_dir(dir).unwrap_or_else(|| label.to_string());
+        let usb_folder = usb_music.join(&folder_name);
+        let local_folder = local_music.join(&folder_name);
+        let local_stems = collect_video_stems(&local_folder);
+
+        let entries = match fs::read_dir(&usb_folder) {
+            Ok(entries) => entries,
+            Err(e) => {
+                errors.push(format!(
+                    "Cannot read USB folder {}: {}",
+                    usb_folder.display(),
+                    e
+                ));
+                continue;
+            }
+        };
+
+        let mut songs: Vec<AdminSongEntry> = Vec::new();
+        let mut new_with_thumbs: usize = 0;
+        let mut new_missing_thumbs: usize = 0;
+
+        for entry in entries.flatten() {
+            let Ok(file_type) = entry.file_type() else {
+                continue;
+            };
+            if !file_type.is_file() {
+                continue;
+            }
+            let filename = entry.file_name().to_string_lossy().to_string();
+            if !songs::is_video_file_name(&filename) {
+                continue;
+            }
+            let name = Path::new(&filename)
+                .file_stem()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .to_string();
+
+            let stem_key = name.to_lowercase();
+            let is_new = !local_stems.contains(&stem_key);
+
+            let mut thumbnail_filename = String::new();
+            for ext in ["jpg", "jpeg"] {
+                let candidate = usb_folder
+                    .join("img")
+                    .join(format!("{}.{}", name, ext));
+                if candidate.exists() {
+                    thumbnail_filename = format!("{}.{}", name, ext);
+                    break;
+                }
+            }
+
+            let has_thumbnail = !thumbnail_filename.is_empty();
+            let is_selectable = is_new && has_thumbnail;
+
+            if is_new {
+                if has_thumbnail {
+                    new_with_thumbs += 1;
+                } else {
+                    new_missing_thumbs += 1;
+                }
+            }
+
+            let video_rel = format!("{}/{}", folder_name, filename);
+            let thumbnail_rel = if has_thumbnail {
+                format!("{}/img/{}", folder_name, thumbnail_filename)
+            } else {
+                String::new()
+            };
+
+            songs.push(AdminSongEntry {
+                folder: folder_name.clone(),
+                label: label.to_string(),
+                name,
+                filename,
+                video_rel,
+                thumbnail_rel,
+                is_new,
+                has_thumbnail,
+                is_selectable,
+            });
+        }
+
+        songs.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+
+        per_folder_counts.push(AdminFolderSummary {
+            folder: folder_name.clone(),
+            label: label.to_string(),
+            new_with_thumbs,
+            new_missing_thumbs,
+        });
+
+        songs_by_folder.push(AdminFolderSongs {
+            folder: folder_name,
+            label: label.to_string(),
+            songs,
+        });
+    }
+
+    AdminUsbScanResult {
+        valid_structure: errors.is_empty(),
+        errors,
+        per_folder_counts,
+        songs_by_folder,
+    }
+}
+
+#[tauri::command]
+fn copy_admin_songs(
+    music_path: String,
+    selections: Vec<AdminCopySelection>,
+    app_handle: tauri::AppHandle,
+) -> AdminCopyResult {
+    let usb_music = PathBuf::from(&music_path);
+    let local_music = get_music_base_path(&app_handle).join("music");
+
+    let mut copied: usize = 0;
+    let mut skipped: usize = 0;
+    let mut errors: Vec<String> = Vec::new();
+
+    for selection in selections {
+        let src_video = usb_music.join(&selection.folder).join(&selection.filename);
+        let dest_video = local_music.join(&selection.folder).join(&selection.filename);
+
+        if dest_video.exists() {
+            skipped += 1;
+            continue;
+        }
+
+        if let Some(parent) = dest_video.parent() {
+            let _ = fs::create_dir_all(parent);
+        }
+
+        match fs::copy(&src_video, &dest_video) {
+            Ok(_) => {
+                copied += 1;
+            }
+            Err(e) => {
+                errors.push(format!(
+                    "Failed to copy video {}: {}",
+                    src_video.display(),
+                    e
+                ));
+                continue;
+            }
+        }
+
+        if selection.thumbnail_filename.is_empty() {
+            errors.push(format!(
+                "Missing thumbnail filename for {}",
+                selection.filename
+            ));
+            continue;
+        }
+
+        let src_thumb = usb_music
+            .join(&selection.folder)
+            .join("img")
+            .join(&selection.thumbnail_filename);
+        let dest_thumb = local_music
+            .join(&selection.folder)
+            .join("img")
+            .join(&selection.thumbnail_filename);
+
+        if let Some(parent) = dest_thumb.parent() {
+            let _ = fs::create_dir_all(parent);
+        }
+
+        if let Err(e) = fs::copy(&src_thumb, &dest_thumb) {
+            errors.push(format!(
+                "Failed to copy thumbnail {}: {}",
+                src_thumb.display(),
+                e
+            ));
+        }
+    }
+
+    AdminCopyResult {
+        copied,
+        skipped,
+        errors,
+    }
+}
 /// Returns songs for a single category by key.
 ///
 /// JavaScript usage:
@@ -380,6 +719,42 @@ fn speed_test() -> Result<serde_json::Value, String> {
 // =============================================================================
 // HELPER FUNCTIONS
 // =============================================================================
+
+fn folder_name_from_dir(dir: &str) -> Option<String> {
+    dir.trim_matches('/')
+        .split('/')
+        .nth(1)
+        .map(|name| name.to_string())
+}
+
+fn collect_video_stems(dir: &Path) -> HashSet<String> {
+    let mut stems: HashSet<String> = HashSet::new();
+    let entries = match fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(_) => return stems,
+    };
+
+    for entry in entries.flatten() {
+        let Ok(file_type) = entry.file_type() else {
+            continue;
+        };
+        if !file_type.is_file() {
+            continue;
+        }
+        let filename = entry.file_name().to_string_lossy().to_string();
+        if !songs::is_video_file_name(&filename) {
+            continue;
+        }
+        let name = Path::new(&filename)
+            .file_stem()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_string();
+        stems.insert(name.to_lowercase());
+    }
+
+    stems
+}
 
 /// Determines the base path where the music/ folder lives.
 ///
@@ -547,6 +922,9 @@ fn main() {
         // -----------------------------------------------------------------
         .invoke_handler(tauri::generate_handler![
             validate_music_structure,
+            detect_admin_drive,
+            scan_admin_usb,
+            copy_admin_songs,
             get_all_categories,
             get_songs_by_category,
             get_shuffle_paths,
