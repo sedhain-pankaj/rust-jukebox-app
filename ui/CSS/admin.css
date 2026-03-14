@@ -200,7 +200,7 @@
   position: absolute;
   top: 0;
   left: 0;
-  right: 12%;
+  right: 8%;
   bottom: 0;
   border: 0.25vw solid #0f9171;
   border-radius: 0.8vw;
@@ -214,7 +214,7 @@
   position: absolute;
   top: 0;
   right: 0;
-  width: 12%;
+  width: 8%;
   bottom: 0;
   display: flex;
   flex-direction: column;
@@ -234,14 +234,12 @@
   cursor: pointer;
   display: grid;
   place-items: center;
-  width: 50%;
-  height: 32%;
   overflow: hidden;
 }
 
 .admin-scroll-btn.admin-scroll-narrow {
-  width: 50%;
-  height: 32%;
+  width: 80%;
+  height: 15%;
 }
 
 .admin-scroll-up {
