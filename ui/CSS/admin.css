@@ -7,7 +7,10 @@
   inset: 0;
   background: #0f1412;
   color: #f3f3f3;
-  font-family: Segoe UI, Arial, sans-serif;
+  font-family:
+    Segoe UI,
+    Arial,
+    sans-serif;
   z-index: 2000;
 }
 
@@ -15,8 +18,25 @@
   display: none;
 }
 
-#admin-header,
-#admin-footer {
+#admin-root * {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+#admin-root img {
+  -webkit-user-drag: none;
+  user-drag: none;
+}
+
+#admin-root input,
+#admin-root textarea,
+#admin-root select,
+#admin-root button {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+#admin-header {
   position: absolute;
   left: 0;
   right: 0;
@@ -34,16 +54,10 @@
   top: 0;
 }
 
-#admin-footer {
-  bottom: 0;
-  font-size: clamp(0.8vw, 1.1vw, 1.4vw);
-  font-weight: normal;
-}
-
 #admin-body {
   position: absolute;
   top: 6%;
-  bottom: 6%;
+  bottom: 0;
   left: 0;
   right: 0;
   padding: 1.5vw 2vw;
@@ -100,6 +114,22 @@
   background: #111a17;
 }
 
+#admin-summary-list::-webkit-scrollbar,
+#admin-manual-list::-webkit-scrollbar,
+#admin-manual-list-wrapper::-webkit-scrollbar,
+#admin-manual-scroll::-webkit-scrollbar,
+#admin-root::-webkit-scrollbar {
+  width: 0;
+}
+
+#admin-summary-list,
+#admin-manual-list,
+#admin-manual-list-wrapper,
+#admin-manual-scroll,
+#admin-root {
+  scrollbar-width: none;
+}
+
 .admin-summary-line {
   font-size: clamp(0.8vw, 1.1vw, 1.4vw);
   margin-bottom: 0.4vw;
@@ -114,12 +144,18 @@
   position: absolute;
   right: 2vw;
   bottom: 2vw;
+  display: flex;
+  gap: 1vw;
+  align-items: center;
+  flex-wrap: nowrap;
 }
 
 #admin-manual-actions {
   position: absolute;
   right: 2vw;
   bottom: 2vw;
+  display: flex;
+  gap: 1vw;
 }
 
 .admin-confirm-btn {
@@ -164,7 +200,7 @@
   position: absolute;
   top: 0;
   left: 0;
-  right: 10%;
+  right: 12%;
   bottom: 0;
   border: 0.25vw solid #0f9171;
   border-radius: 0.8vw;
@@ -178,8 +214,13 @@
   position: absolute;
   top: 0;
   right: 0;
-  width: 10%;
+  width: 12%;
   bottom: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1.5vw;
 }
 
 .admin-scroll-btn {
@@ -187,24 +228,30 @@
   border: 0.1vw solid #315f53;
   border-radius: 1vw;
   color: white;
-  position: absolute;
-  left: 0;
+  position: relative;
+  left: auto;
   right: 0;
   cursor: pointer;
   display: grid;
   place-items: center;
-  width: 100%;
+  width: 50%;
+  height: 32%;
   overflow: hidden;
 }
 
+.admin-scroll-btn.admin-scroll-narrow {
+  width: 50%;
+  height: 32%;
+}
+
 .admin-scroll-up {
-  top: 0;
-  bottom: 85%;
+  top: auto;
+  bottom: auto;
 }
 
 .admin-scroll-down {
-  top: 85%;
-  bottom: 0;
+  top: auto;
+  bottom: auto;
 }
 
 .admin-scroll-btn:hover {
