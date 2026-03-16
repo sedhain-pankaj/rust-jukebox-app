@@ -28,23 +28,50 @@
     return (driveInfo && (driveInfo.musicPath || driveInfo.music_path)) || "";
   }
 
+  function normalizeSongFlags(song) {
+    var isNew = song.is_new !== undefined ? song.is_new : song.isNew;
+    var hasThumbnail =
+      song.has_thumbnail !== undefined ? song.has_thumbnail : song.hasThumbnail;
+    var isSelectable =
+      song.is_selectable !== undefined
+        ? song.is_selectable
+        : song.isSelectable;
+
+    if (isSelectable === undefined || isSelectable === null) {
+      isSelectable = !!(isNew && hasThumbnail);
+    } else if (!isSelectable && isNew && hasThumbnail) {
+      isSelectable = true;
+    }
+
+    return {
+      isNew: !!isNew,
+      hasThumbnail: !!hasThumbnail,
+      isSelectable: !!isSelectable,
+    };
+  }
+
   function renderSummary(scan) {
     var list = document.getElementById("admin-summary-list");
     list.innerHTML = "";
 
-    scan.per_folder_counts.forEach(function (item) {
+    var counts = scan.per_folder_counts || scan.perFolderCounts || [];
+    counts.forEach(function (item) {
+      var folderName = item.folder || item.folderName || "";
+      var newWithThumbs = item.new_with_thumbs || item.newWithThumbs || 0;
+      var newMissingThumbs =
+        item.new_missing_thumbs || item.newMissingThumbs || 0;
       var line = document.createElement("div");
       line.className = "admin-summary-line";
-      line.textContent = item.folder + ": " + item.new_with_thumbs + " new songs";
+      line.textContent = folderName + ": " + newWithThumbs + " new songs";
       list.appendChild(line);
 
-      if (item.new_missing_thumbs > 0) {
+      if (newMissingThumbs > 0) {
         var warn = document.createElement("div");
         warn.className = "admin-summary-line missing";
         warn.textContent =
-          item.folder +
+          folderName +
           ": " +
-          item.new_missing_thumbs +
+          newMissingThumbs +
           " new songs ignored (No thumbnails)";
         list.appendChild(warn);
       }
@@ -66,42 +93,71 @@
     var container = document.getElementById("admin-manual-list");
     container.innerHTML = "";
 
-    scan.songs_by_folder.forEach(function (folder) {
+    var folders = scan.songs_by_folder || scan.songsByFolder || [];
+    folders.forEach(function (folder) {
+      var folderName = folder.folder || folder.folderName || "";
       var section = document.createElement("div");
       section.className = "admin-folder-section";
 
       var title = document.createElement("div");
       title.className = "admin-folder-title";
-      title.textContent = folder.folder;
+      title.textContent = folderName;
       section.appendChild(title);
 
-      folder.songs.forEach(function (song) {
+      var songs = folder.songs || [];
+      songs.forEach(function (song) {
+        var flags = normalizeSongFlags(song);
         var row = document.createElement("label");
         row.className = "admin-song-row";
 
-        if (!song.is_selectable) {
+        var isSelectable = flags.isSelectable;
+        var hasThumbnail = flags.hasThumbnail;
+        var thumbnailRel =
+          song.thumbnail_rel !== undefined
+            ? song.thumbnail_rel
+            : song.thumbnailRel;
+        var songName = song.name || song.title || "";
+        var isNew = flags.isNew;
+
+        if (!isSelectable) {
           row.classList.add("disabled");
         }
 
-        if (!song.has_thumbnail) {
+        if (!hasThumbnail) {
           var warning = document.createElement("span");
-          warning.className = "admin-warning";
-          warning.textContent = "!";
+          warning.className = "admin-warning-triangle";
+          var warningMark = document.createElement("span");
+          warningMark.className = "admin-warning-mark";
+          warningMark.textContent = "!";
+          warning.appendChild(warningMark);
           row.appendChild(warning);
         }
 
-        if (song.is_selectable) {
+        if (isSelectable) {
           var checkbox = document.createElement("input");
           checkbox.type = "checkbox";
           checkbox.className = "admin-select";
-          checkbox.setAttribute("data-folder", song.folder);
-          checkbox.setAttribute("data-filename", song.filename);
-          checkbox.setAttribute("data-thumb", song.thumbnail_rel);
+          checkbox.setAttribute("data-folder", folderName);
+          checkbox.setAttribute("data-filename", song.filename || "");
+          checkbox.setAttribute("data-thumb", thumbnailRel || "");
           row.appendChild(checkbox);
+        } else if (!isNew) {
+          var disabledBox = document.createElement("span");
+          disabledBox.className = "admin-checkbox-disabled";
+          disabledBox.textContent = "X";
+          row.appendChild(disabledBox);
+        }
+
+        if (!isSelectable && !isNew) {
+          row.setAttribute("title", "Already exists in local jukebox.");
+        } else if (!hasThumbnail) {
+          row.setAttribute("title", "New song but no thumbnail - IGNORED!");
+        } else if (isSelectable) {
+          row.setAttribute("title", "New song - Mark the checkbox to transfer.");
         }
 
         var text = document.createElement("span");
-        text.textContent = song.name;
+        text.textContent = songName;
         row.appendChild(text);
 
         section.appendChild(row);
@@ -113,13 +169,21 @@
 
   function collectSelectableSongs(scan) {
     var selections = [];
-    scan.songs_by_folder.forEach(function (folder) {
-      folder.songs.forEach(function (song) {
-        if (song.is_selectable) {
+    var folders = scan.songs_by_folder || scan.songsByFolder || [];
+    folders.forEach(function (folder) {
+      var folderName = folder.folder || folder.folderName || "";
+      var songs = folder.songs || [];
+      songs.forEach(function (song) {
+        var isSelectable = normalizeSongFlags(song).isSelectable;
+        var thumbnailRel =
+          song.thumbnail_rel !== undefined
+            ? song.thumbnail_rel
+            : song.thumbnailRel;
+        if (isSelectable) {
           selections.push({
-            folder: song.folder,
-            filename: song.filename,
-            thumbnail_filename: song.thumbnail_rel.split("/").pop(),
+            folder: folderName,
+            filename: song.filename || "",
+            thumbnail_filename: (thumbnailRel || "").split("/").pop(),
           });
         }
       });
