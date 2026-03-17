@@ -13,6 +13,8 @@
     return window.__adminMode.readyPromise || Promise.resolve({ active: false });
   };
 
+  var handlersBound = false;
+
   function setAdminActive(active) {
     window.__adminMode.active = active;
     if (active) {
@@ -26,6 +28,18 @@
 
   function getMusicPath(driveInfo) {
     return (driveInfo && (driveInfo.musicPath || driveInfo.music_path)) || "";
+  }
+
+  function setTimerCancelledVisual(cancelled) {
+    var el = document.getElementById("admin-auto-countdown");
+    if (!el) {
+      return;
+    }
+    if (cancelled) {
+      el.classList.add("admin-timer-cancelled");
+    } else {
+      el.classList.remove("admin-timer-cancelled");
+    }
   }
 
   function normalizeSongFlags(song) {
@@ -204,7 +218,18 @@
   }
 
   function showResultModal(result) {
+    var selections = window.__adminMode.lastCopySelections || [];
+    var summaryHtml = formatSelectionsSummaryHtml(selections);
+    var usbPath = getMusicPath(window.__adminMode.drive) || "";
+
     var message =
+      "<b>USB:</b> " +
+      usbPath +
+      "<br><b>Selected:</b> " +
+      selections.length +
+      "<br>" +
+      summaryHtml +
+      "<br><br>" +
       "Copied " +
       result.copied +
       " songs. Skipped " +
@@ -218,10 +243,80 @@
     jquery_modal({
       message: message,
       title: "Transfer Complete",
-      closeTime: 20000,
-      buttonText: "Continue",
+      closeTime: 600000,
+      buttonText: "Done (Restart Jukebox)",
+      buttonAction: function () {
+        restartApp();
+      },
     });
   }
+
+  function formatSelectionsSummaryHtml(selections) {
+    if (!selections || !selections.length) {
+      return "";
+    }
+    var counts = {};
+    selections.forEach(function (sel) {
+      var folder = sel.folder || "";
+      counts[folder] = (counts[folder] || 0) + 1;
+    });
+    var folders = Object.keys(counts).sort(function (a, b) {
+      return a.toLowerCase().localeCompare(b.toLowerCase());
+    });
+    return folders
+      .map(function (folder) {
+        return "<b>" + folder + ":</b> " + counts[folder];
+      })
+      .join("<br>");
+  }
+
+  function showProgressModal(selections) {
+    var musicPath = getMusicPath(window.__adminMode.drive) || "";
+    var summaryHtml = formatSelectionsSummaryHtml(selections);
+    var message =
+      "Copying " +
+      selections.length +
+      " songs...<br><br><b>USB:</b> " +
+      musicPath +
+      "<br><br>" +
+      summaryHtml +
+      "<br><b>Destination:</b> Local jukebox music folder";
+
+    jquery_modal({
+      message: message,
+      title: "Transferring",
+      dialogClass: "no-closer",
+      closeTime: 3600000,
+      buttonText: "Working...",
+      closeOnClick: false,
+      buttonColor: "#666666",
+    });
+  }
+
+  function closeAnyModal() {
+    try {
+      if ($("#dialog-confirm").hasClass("ui-dialog-content")) {
+        $("#dialog-confirm").dialog("close");
+      }
+    } catch (_) {}
+  }
+
+  function restartApp() {
+    // Hard reset back to startup state (closest equivalent to Ctrl+Shift+R).
+    stopAutoTimerNow("system");
+    copyRunId += 1; // invalidate any late copy callbacks
+    window.__adminMode.active = false;
+    closeAnyModal();
+    try {
+      window.location.reload();
+    } catch (_) {
+      // Fallback for odd WebView cases.
+      window.location.href = window.location.href;
+    }
+  }
+
+  var copyInProgress = false;
+  var copyRunId = 0;
 
   function executeCopy(selections) {
     if (!selections.length) {
@@ -232,8 +327,18 @@
       return;
     }
 
+    stopAutoTimerNow("system");
     $("#admin-confirm").prop("disabled", true);
     $("#admin-manual-confirm").prop("disabled", true);
+    $("#admin-exit").prop("disabled", true);
+    $("#admin-manual-cancel").prop("disabled", true);
+
+    copyInProgress = true;
+    copyRunId += 1;
+    var thisRun = copyRunId;
+    window.__adminMode.lastCopySelections = selections.slice();
+
+    showProgressModal(selections);
 
     var musicPath = getMusicPath(window.__adminMode.drive);
     invoke("copy_admin_songs", {
@@ -242,17 +347,31 @@
       selections: selections,
     })
       .then(function (result) {
+        if (!window.__adminMode.active || thisRun !== copyRunId) {
+          return;
+        }
+        closeAnyModal();
         showResultModal(result);
       })
       .catch(function (err) {
+        if (!window.__adminMode.active || thisRun !== copyRunId) {
+          return;
+        }
+        closeAnyModal();
         jquery_modal({
           message: "Copy failed: " + err,
           title: "Copy Error",
         });
       })
       .finally(function () {
+        if (thisRun !== copyRunId) {
+          return;
+        }
+        copyInProgress = false;
         $("#admin-confirm").prop("disabled", false);
         $("#admin-manual-confirm").prop("disabled", false);
+        $("#admin-exit").prop("disabled", false);
+        $("#admin-manual-cancel").prop("disabled", false);
       });
   }
 
@@ -271,6 +390,13 @@
 
   var autoCountdown = 10;
   var autoTimer = null;
+  var autoStoppedByInput = false;
+
+  function isChooserVisible() {
+    return !document
+      .getElementById("admin-page-chooser")
+      .classList.contains("hidden");
+  }
 
   function updateCountdown() {
     document.getElementById("admin-auto-countdown").textContent = autoCountdown;
@@ -283,10 +409,20 @@
     }
   }
 
+  function stopAutoTimerNow(reason) {
+    if (reason === "input") {
+      setTimerCancelledVisual(true);
+    }
+    autoStoppedByInput = true;
+    clearAutoTimer();
+  }
+
   function startAutoTimer() {
     clearAutoTimer();
     autoCountdown = 10;
     updateCountdown();
+    setTimerCancelledVisual(false);
+    autoStoppedByInput = false;
     autoTimer = setInterval(function () {
       autoCountdown -= 1;
       updateCountdown();
@@ -297,26 +433,18 @@
     }, 1000);
   }
 
-  function resetAutoTimerIfNeeded() {
-    var chooserVisible = !document
-      .getElementById("admin-page-chooser")
-      .classList.contains("hidden");
-    var autoSelected =
-      document.querySelector("input[name='admin-mode']:checked").value ===
-      "auto";
-    if (chooserVisible && autoSelected) {
-      startAutoTimer();
-    }
-  }
-
   function runAutoCopy(skipConfirm) {
     var selections = collectSelectableSongs(window.__adminMode.scan);
     if (skipConfirm) {
       executeCopy(selections);
     } else {
+      var summaryHtml = formatSelectionsSummaryHtml(selections);
       confirmCopy(
         selections,
-        selections.length + " songs will be transferred in AUTO mode.",
+        "<b>AUTO mode</b><br>" +
+          selections.length +
+          " songs will be transferred.<br><br>" +
+          summaryHtml,
       );
     }
   }
@@ -327,82 +455,69 @@
   }
 
   function bindAdminHandlers() {
+    if (handlersBound) {
+      return;
+    }
+    handlersBound = true;
+
     $(document).on(
       "click",
       "input[name='admin-mode']",
       function () {
-        if (this.value === "auto") {
-          startAutoTimer();
-        } else {
-          clearAutoTimer();
+        // Any interaction on the chooser page cancels the auto timer.
+        if (window.__adminMode.active && isChooserVisible() && autoTimer) {
+          stopAutoTimerNow("input");
         }
       },
     );
 
     $(document).on("click", "#admin-confirm", function () {
-      var selectedMode = document.querySelector(
-        "input[name='admin-mode']:checked",
-      ).value;
+      stopAutoTimerNow("input");
+      var checked = document.querySelector("input[name='admin-mode']:checked");
+      if (!checked) {
+        jquery_modal({
+          message: "Please select AUTO or MANUAL mode.",
+          title: "Select Mode",
+        });
+        return;
+      }
+      var selectedMode = checked.value;
       if (selectedMode === "auto") {
         runAutoCopy(false);
       } else {
-        clearAutoTimer();
         showManualPage();
       }
     });
 
     $(document).on("click", "#admin-exit", function () {
-      window.__adminMode.active = false;
-      document.getElementById("admin-root").classList.add("hidden");
-      document.getElementById("app-root").classList.remove("hidden");
-      if (typeof window.selectTextDisabled === "function") {
-        window.selectTextDisabled();
-      }
-      if (typeof window.ensureMusicStructure === "function") {
-        window.ensureMusicStructure().then(function (validation) {
-          if (!validation.valid) {
-            return;
-          }
-          if (typeof window.loadCategoriesOnce === "function") {
-            window.loadCategoriesOnce();
-          }
-          if (typeof window.video_scaler === "function") {
-            window.video_scaler();
-          }
-          if (typeof window.searchCondition === "function") {
-            window.searchCondition();
-          }
-          if (typeof window.autoShuffle === "function") {
-            window.autoShuffle();
-          }
-          if (typeof window.skipVideo === "function") {
-            window.skipVideo();
-          }
-          if (typeof window.queue_scroll_top === "function") {
-            window.queue_scroll_top();
-          }
-          if (typeof window.volume_slider === "function") {
-            window.volume_slider();
-          }
-          if (typeof window.volume_changer === "function") {
-            window.volume_changer();
-          }
+      stopAutoTimerNow("input");
+      if (copyInProgress) {
+        jquery_modal({
+          message: "Transfer is running. Please wait until it finishes.",
+          title: "Please Wait",
         });
+        return;
       }
+      // Invalidate any late callbacks and go back to jukebox.
+      copyRunId += 1;
+      restartApp();
     });
 
     $(document).on("click", "#admin-manual-confirm", function () {
       var selections = collectManualSelections();
+      var summaryHtml = formatSelectionsSummaryHtml(selections);
       confirmCopy(
         selections,
-        selections.length + " songs selected. CONFIRM transfer?",
+        "<b>MANUAL mode</b><br>" +
+          selections.length +
+          " songs selected.<br><br>" +
+          summaryHtml,
       );
     });
 
     $(document).on("click", "#admin-manual-cancel", function () {
       document.getElementById("admin-page-manual").classList.add("hidden");
       document.getElementById("admin-page-chooser").classList.remove("hidden");
-      resetAutoTimerIfNeeded();
     });
 
     $(document).on("click", "#admin-scroll-up", function () {
@@ -423,7 +538,15 @@
 
     ["mousedown", "click", "touchstart", "keydown"].forEach(function (evt) {
       document.addEventListener(evt, function () {
-        resetAutoTimerIfNeeded();
+        // Any input while on the chooser page cancels AUTO permanently.
+        if (
+          window.__adminMode.active &&
+          isChooserVisible() &&
+          autoTimer &&
+          !autoStoppedByInput
+        ) {
+          stopAutoTimerNow("input");
+        }
       });
     });
   }
@@ -460,6 +583,9 @@
     if (!invoke) {
       return Promise.resolve({ active: false });
     }
+
+    // Bind handlers early so Confirm always responds, even during scan or with 0 new songs.
+    bindAdminHandlers();
 
     return invoke("detect_admin_drive")
       .then(function (result) {
