@@ -4,6 +4,8 @@ const defaults = {
   title: "",
   dialogClass: "no-closer",
   closeTime: 10000,
+  height: null,
+  width: null,
   buttonId: "continue_button",
   buttonIcon: "ui-icon-check",
   buttonText: "Continue",
@@ -26,6 +28,13 @@ function jquery_modal(options) {
   var windowHeight = $(window).height();
   var maxDimension = Math.max(windowWidth, windowHeight);
 
+  // Admin mode dialogs should be taller and a bit wider for readability.
+  var isAdminActive = !!(window.__adminMode && window.__adminMode.active);
+  var defaultHeight = isAdminActive ? maxDimension * 0.35 : maxDimension * 0.13;
+  var defaultWidth = isAdminActive ? maxDimension * 0.3 : maxDimension * 0.25;
+  var dialogHeight = settings.height || defaultHeight;
+  var dialogWidth = settings.width || defaultWidth;
+
   //main modal
   $("#dialog-confirm").html(settings.message);
   $("#dialog-confirm").dialog({
@@ -35,8 +44,8 @@ function jquery_modal(options) {
     draggable: false,
     show: { effect: "blind", duration: 500 },
     hide: { effect: "blind", duration: 400 },
-    height: maxDimension * 0.12,
-    width: maxDimension * 0.25,
+    height: dialogHeight,
+    width: dialogWidth,
     modal: true,
     open: function () {
       //clear any previous timers and start new one
