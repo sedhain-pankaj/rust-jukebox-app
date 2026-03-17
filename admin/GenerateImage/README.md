@@ -11,7 +11,7 @@ creates missing thumbnails for each video. It replaces the old PHP script.
 
 ## Required FFmpeg files
 This tool embeds FFmpeg at build time. You must place these three files in
-`GenerateImage/bin/` before building:
+`GenerateImage/ffmpeg-bin/` before building:
 - `ffmpeg.exe`
 - `ffprobe.exe`
 - `ffplay.exe` (not used directly, but keep it alongside the others)
