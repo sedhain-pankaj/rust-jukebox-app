@@ -11,13 +11,13 @@
             {
                 "label": "main",
                 "title": "Craig Williams JukeBox",
-                "fullscreen": false,
+                "fullscreen": true,
                 "resizable": false,
                 "maximized": true,
                 "width": 1920,
                 "height": 1080,
                 "decorations": true,
-                "alwaysOnTop": false,
+                "alwaysOnTop": true,
                 "url": "index.html"
             }
         ],
