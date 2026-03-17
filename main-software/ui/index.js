@@ -32,6 +32,19 @@ var mejsCurrentRestarter = null;
 var fullscreenActivityTimeout = null;
 var fullscreenActivityBound = false;
 
+function forceFakeFullscreen(player) {
+  if (!player) {
+    return;
+  }
+  player.options.useFakeFullscreen = true;
+  player.fullscreenMode = "";
+  player.isNativeFullScreen = false;
+  player.detectFullscreenMode = function () {
+    this.fullscreenMode = "";
+    return "";
+  };
+}
+
 function scheduleFullscreenCheck() {
   clearTimeout(fullscreenActivityTimeout);
   fullscreenActivityTimeout = setTimeout(function () {
@@ -121,8 +134,9 @@ function mejs_media_Player(func_restarter, sourceUrl) {
 
     success: function (mediaElement, DOMObject, player) {
       mejsPlayerInstance = player;
+      forceFakeFullscreen(player);
 
-      // "ended" — call the current restarter
+      // "ended" - call the current restarter
       mediaElement.addEventListener("ended", function () {
         $("video").css("pointer-events", "auto");
         if (mejsCurrentRestarter) {
