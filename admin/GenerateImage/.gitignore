@@ -1,4 +1,2 @@
 /target
-/ffmpeg-bin/ffmpeg.exe
-/ffmpeg-bin/ffprobe.exe
-/ffmpeg-bin/ffplay.exe
+/ffmpeg-bin/
