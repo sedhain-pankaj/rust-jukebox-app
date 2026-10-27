@@ -19,7 +19,7 @@ This tool embeds FFmpeg at build time. You must place these three files in
 These files are ignored by git, so you have to supply them locally.
 
 ## Build
-From the `admin/GenerateImage` folder:
+From the `admin_tools/GenerateImage` folder:
 
 ```powershell
 cargo build --release
@@ -28,7 +28,7 @@ cargo build --release
 The EXE will be at:
 
 ```
-admin/GenerateImage/target/release/Generate_Images.exe
+admin_tools/GenerateImage/target/release/Generate_Images.exe
 ```
 
 ## Run

@@ -9,7 +9,7 @@ This script provides a simple, cross-platform way to automatically set up the st
 This folder contains two dedicated scripts, one for each major operating system:
 
 - **`generate_music_folder(Windows).bat`**: The script designed to run on Windows PCs.
-- **`generate_music_folders(Linux).sh`**: The script designed to run on Ubuntu/Linux systems.
+- **`generate_music_folder(Linux).sh`**: The script designed to run on Ubuntu/Linux systems.
 
 ---
 
@@ -42,14 +42,14 @@ Linux requires a few extra steps because you must explicitly give permission to 
 - This command (`chmod`) tells the operating system that this file is allowed to be run as a program. **You must run this command once.**
 
   ```bash
-  chmod +x generate_music_folders(Linux).sh
+  chmod +x generate_music_folder(Linux).sh
   ```
 
 ### Step 4: Run the Script
 
 - You can now run the script by **double-clicking** the file in the file manager, **OR** you can run it directly in the Terminal:
   ```bash
-  ./"generate_music_folders(Linux).sh"
+  ./"generate_music_folder(Linux).sh"
   ```
 
 The Terminal will display the progress, and the folder structure will be created right next to the script.
