@@ -24,3 +24,10 @@ Desktop.ini
 
 # API keys and secrets
 config.js
+
+#opencode and plugins
+.opencode
+
+# graphify - keep only graph.html
+graphify-out/*
+!graphify-out/graph.html
