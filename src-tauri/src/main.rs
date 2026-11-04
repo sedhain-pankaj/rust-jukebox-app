@@ -82,6 +82,9 @@ use std::path::{Path, PathBuf};
 // .asset_protocol_scope() on the AppHandle. Without this import,
 // Rust wouldn't know those methods exist (traits must be "in scope").
 use tauri::Manager;
+// The Listener trait gives us .listen() so we can forward JS console/mejs
+// errors into THIS terminal (the one running `cargo tauri dev`).
+use tauri::Listener;
 #[derive(serde::Serialize)]
 struct MusicStructureValidation {
     valid: bool,
@@ -905,6 +908,18 @@ fn main() {
             // Write to a SEPARATE file so get_all_categories doesn't overwrite it
             let setup_log_path = std::env::temp_dir().join("jukebox-setup.log");
             let _ = std::fs::write(&setup_log_path, &log);
+
+            // -----------------------------------------------------------------
+            // mejs-terminal-log — Forward JS console/mejs errors to THIS terminal
+            // -----------------------------------------------------------------
+            // The mejs player's errors (e.g. "can't handle the path assets://")
+            // currently only show in the webview devtools console. This listener
+            // pipes them into the terminal running `cargo tauri dev`, so we can
+            // watch playback errors without opening devtools.
+            // The JS side emits via window.__TAURI__.event.emit("mejs-terminal-log", ...).
+            app.listen("mejs-terminal-log", |event| {
+                eprintln!("[JS] {}", event.payload());
+            });
 
             Ok(())
         })

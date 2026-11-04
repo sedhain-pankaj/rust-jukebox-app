@@ -23,6 +23,57 @@
 // ---------------------------------------------------------------------------
 var mejsPlayerInstance = null;
 
+// ---------------------------------------------------------------------------
+// sendLogToTerminal() — Forward a log line to the Rust terminal
+// ---------------------------------------------------------------------------
+// Emits the "mejs-terminal-log" event; main.rs listens for it and prints the
+// payload into the terminal running `cargo tauri dev`. This lets us watch mejs
+// errors without opening the webview devtools console.
+function formatConsoleArgs(args) {
+  var parts = [];
+  for (var i = 0; i < args.length; i++) {
+    var a = args[i];
+    if (typeof a === "string") {
+      parts.push(a);
+    } else {
+      try {
+        parts.push(JSON.stringify(a));
+      } catch (_) {
+        parts.push(String(a));
+      }
+    }
+  }
+  return parts.join(" ");
+}
+
+function sendLogToTerminal(level, message) {
+  try {
+    var tauri = window.__TAURI__;
+    if (tauri && tauri.event && typeof tauri.event.emit === "function") {
+      tauri.event.emit("mejs-terminal-log", "[" + level + "] " + message);
+    }
+  } catch (_) {
+    // Never let the logging bridge break playback.
+  }
+}
+
+// Pipe console.error / console.warn into the Rust terminal as well. mejs and
+// the webview engine report media failures here (e.g. "can't handle the path
+// assets://"), and without this hook those messages are only visible in
+// devtools.
+(function () {
+  var origError = console.error;
+  var origWarn = console.warn;
+  console.error = function () {
+    origError.apply(console, arguments);
+    sendLogToTerminal("console.error", formatConsoleArgs(arguments));
+  };
+  console.warn = function () {
+    origWarn.apply(console, arguments);
+    sendLogToTerminal("console.warn", formatConsoleArgs(arguments));
+  };
+})();
+
 // The callback that runs when the current song ends.
 // Updated by mejs_media_Player() on each song change.
 var mejsCurrentRestarter = null;
@@ -175,6 +226,16 @@ function mejs_media_Player(func_restarter, sourceUrl) {
 
     error: function (e) {
       console.log("media element error:", e);
+      var details = "";
+      try {
+        details =
+          "code=" + (e && e.code) +
+          ", message=" + (e && e.message) +
+          ", src=" + (mejsPlayerInstance ? mejsPlayerInstance.media.src : "");
+      } catch (_) {
+        details = JSON.stringify(e);
+      }
+      sendLogToTerminal("mejs error", details);
       resetPlayer();
       if (mejsCurrentRestarter) {
         var restarter = mejsCurrentRestarter;
