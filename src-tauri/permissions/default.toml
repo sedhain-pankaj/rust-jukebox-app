@@ -1,0 +1,81 @@
+# App ACL permissions — required for every #[tauri::command] to be callable
+# from the frontend. Without this file the app's ACL manifest is empty, so
+# Tauri's ACL rejects every custom IPC command with
+# "<command> not allowed. Plugin not found".
+#
+# Each [[permission]] block allows one command (commands.allow must match the
+# exact invoke() name in main.rs's generate_handler![...]). The [default]
+# block is the app plugin's default permission set — granted in capabilities
+# as a bare "default" (no "app:" prefix: an unprefixed id resolves to the
+# app's ACL manifest).
+
+[default]
+description = "Default permissions for the jukebox app"
+permissions = [
+  "allow-validate-music-structure",
+  "allow-detect-admin-drive",
+  "allow-scan-admin-usb",
+  "allow-copy-admin-songs",
+  "allow-get-all-categories",
+  "allow-get-songs-by-category",
+  "allow-get-shuffle-paths",
+  "allow-debug-paths",
+  "allow-speed-test",
+  "allow-get-media-server-port",
+  "allow-get-app-env",
+]
+
+[[permission]]
+identifier = "allow-validate-music-structure"
+description = "Enables the validate_music_structure command."
+commands.allow = ["validate_music_structure"]
+
+[[permission]]
+identifier = "allow-detect-admin-drive"
+description = "Enables the detect_admin_drive command."
+commands.allow = ["detect_admin_drive"]
+
+[[permission]]
+identifier = "allow-scan-admin-usb"
+description = "Enables the scan_admin_usb command."
+commands.allow = ["scan_admin_usb"]
+
+[[permission]]
+identifier = "allow-copy-admin-songs"
+description = "Enables the copy_admin_songs command."
+commands.allow = ["copy_admin_songs"]
+
+[[permission]]
+identifier = "allow-get-all-categories"
+description = "Enables the get_all_categories command."
+commands.allow = ["get_all_categories"]
+
+[[permission]]
+identifier = "allow-get-songs-by-category"
+description = "Enables the get_songs_by_category command."
+commands.allow = ["get_songs_by_category"]
+
+[[permission]]
+identifier = "allow-get-shuffle-paths"
+description = "Enables the get_shuffle_paths command."
+commands.allow = ["get_shuffle_paths"]
+
+[[permission]]
+identifier = "allow-debug-paths"
+description = "Enables the debug_paths command."
+commands.allow = ["debug_paths"]
+
+[[permission]]
+identifier = "allow-speed-test"
+description = "Enables the speed_test command."
+commands.allow = ["speed_test"]
+
+[[permission]]
+identifier = "allow-get-media-server-port"
+description = "Enables the get_media_server_port command."
+commands.allow = ["get_media_server_port"]
+
+[[permission]]
+identifier = "allow-get-app-env"
+description = "Enables the get_app_env command."
+commands.allow = ["get_app_env"]

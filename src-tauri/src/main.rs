@@ -849,6 +849,31 @@ fn get_app_env(app_handle: tauri::AppHandle) -> std::collections::BTreeMap<Strin
     std::collections::BTreeMap::new()
 }
 
+/// A free port for tauri-plugin-localhost, which serves the app's own UI
+/// over http://localhost:<port> (see the .plugin(...) + set_url below).
+///
+/// WHY: YouTube's IFrame Player API refuses to play (error 153, "the
+/// request does not include the HTTP Referer header or equivalent API
+/// Client identification") when the embedding page's origin is the
+/// tauri.localhost / tauri:// protocol — the page can't identify itself
+/// to YouTube. Serving the app over a real http://localhost origin gives
+/// the page a valid Referer, so YouTube embeds play again.
+///
+/// Tries 1428-1435 (just after the media server's 1420-1427 candidates),
+/// falls back to an OS-assigned port. The port is probed here because the
+/// plugin's server panics if the port is taken.
+fn pick_localhost_port() -> u16 {
+    for port in 1428..=1435 {
+        if std::net::TcpListener::bind(("127.0.0.1", port)).is_ok() {
+            return port;
+        }
+    }
+    if let Ok(listener) = std::net::TcpListener::bind("127.0.0.1:0") {
+        return listener.local_addr().unwrap().port();
+    }
+    1428
+}
+
 /// Determines the base path where the music/ folder lives.
 ///
 /// In development: the workspace root (Craigs-Music-Player/rust-jukebox-app/)
@@ -934,7 +959,18 @@ fn main() {
     // The final .run() actually starts the application.
     // =========================================================================
 
+    let localhost_port = pick_localhost_port();
+
     tauri::Builder::default()
+        // -----------------------------------------------------------------
+        // .plugin(tauri_plugin_localhost) — Serve the UI over real HTTP
+        // -----------------------------------------------------------------
+        // Serves the embedded UI (frontendDist) at http://localhost:<port>.
+        // The main window is pointed at that URL in .setup() (see set_url
+        // below) so the page's origin is a real HTTP origin instead of
+        // tauri.localhost — required for YouTube IFrame embeds (error 153).
+        // -----------------------------------------------------------------
+        .plugin(tauri_plugin_localhost::Builder::new(localhost_port).build())
         // -----------------------------------------------------------------
         // .setup() — Run code once after the app is initialized
         // -----------------------------------------------------------------
@@ -950,7 +986,7 @@ fn main() {
         // match it. By explicitly adding the canonical music directory to
         // the scope at runtime, we tell Tauri "this path is allowed".
         // -----------------------------------------------------------------
-        .setup(|app| {
+        .setup(move |app| {
             // Find the music directory using the same logic as IPC commands
             let base_path = get_music_base_path(&app.handle());
             let music_dir = base_path.join("music");
@@ -1006,6 +1042,51 @@ fn main() {
                     e
                 )),
             }
+
+            // -----------------------------------------------------------------
+            // Localhost UI — real HTTP origin for YouTube IFrame embeds
+            // -----------------------------------------------------------------
+            // The window initially loads the asset-protocol copy of the UI;
+            // point it at the tauri-plugin-localhost copy so the page's
+            // origin is http://localhost:<port>. YouTube's IFrame Player
+            // API error 153 ("request does not include the HTTP Referer
+            // header or equivalent API Client identification") goes away
+            // because the page can now identify itself to YouTube.
+            //
+            // The localhost URL is "remote" from Tauri's ACL point of view,
+            // so re-grant the same permissions as capabilities/default.json
+            // (core:default + the app's "default" set) for that URL —
+            // otherwise IPC (every #[tauri::command]) breaks once the page
+            // loads over http.
+            let localhost_url = format!("http://localhost:{localhost_port}");
+            if let Some(window) = app.get_webview_window("main") {
+                if let Ok(url) = tauri::Url::parse(&localhost_url) {
+                    if let Err(e) = window.navigate(url) {
+                        term_log(&format!(
+                            "Warning: Failed to point main window at localhost: {e}"
+                        ));
+                    }
+                }
+            }
+            if let Err(e) = app
+                .handle()
+                .add_capability(
+                    tauri::ipc::CapabilityBuilder::new("localhost-main")
+                    .remote(localhost_url)
+                    .window("main")
+                    .permission("core:default")
+                    // "default" (no prefix) is the app plugin's default
+                    // permission set — allows every #[tauri::command].
+                    .permission("default"),
+                ) {
+                term_log(&format!(
+                    "Warning: Failed to add localhost-main capability: {e}"
+                ));
+            }
+            term_log(&format!(
+                "[pid {}] App UI served at http://localhost:{localhost_port} (YouTube embed fix)",
+                std::process::id()
+            ));
 
             // Log the scope for debugging
             let log_path = std::env::temp_dir().join("jukebox-debug.log");

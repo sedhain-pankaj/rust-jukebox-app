@@ -291,7 +291,20 @@ $(document).ready(function () {
 
       // mediaBaseReady() resolves the media server's port (config.js) —
       // the shuffle path builds video URLs, so the port must be known first.
-      Promise.all([mediaBaseReady(), window.ensureMusicStructure()]).then(function (results) {
+      //
+      // Guard: the first (asset://) page can be cut off by the navigation to
+      // the localhost URL before its deferred scripts all finished, so
+      // validation.js may not have run there. Skip the gate in that case —
+      // it will run on the real (localhost) page, where scripts load fully.
+      var validationPromise;
+      if (typeof window.ensureMusicStructure === "function") {
+        validationPromise = window.ensureMusicStructure();
+      } else {
+        console.warn("ensureMusicStructure unavailable — skipping startup validation");
+        validationPromise = Promise.resolve({ valid: true });
+      }
+
+      Promise.all([mediaBaseReady(), validationPromise]).then(function (results) {
         var validation = results[1];
         if (!validation.valid) {
           return;

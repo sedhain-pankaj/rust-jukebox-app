@@ -68,6 +68,9 @@
     <script src="/JS/mejs.js" defer></script>
     <script src="/JS/modal.js" defer></script>
     <script src="/JS/admin.js" defer></script>
+    <!-- validation.js must load before songs.js / index.js: their
+         $(document).ready handlers call window.ensureMusicStructure(). -->
+    <script src="/JS/validation.js" defer></script>
     <script src="/JS/songs.js" defer></script>
     <script src="/JS/queue.js" defer></script>
     <script src="/JS/youtube.js" defer></script>
@@ -78,7 +81,6 @@
     <script src="/JS/skip.js" defer></script>
     <script src="/JS/scrollbar.js" defer></script>
     <script src="/JS/event-handlers.js" defer></script>
-    <script src="/JS/validation.js" defer></script>
     <script src="/index.js" defer></script>
 </head>
 
