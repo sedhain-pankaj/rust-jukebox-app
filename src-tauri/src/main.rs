@@ -69,6 +69,10 @@
 // After this line, we can use songs::Song, songs::Category, etc.
 mod songs;
 
+// The local HTTP media server (see media_server.rs for why it exists:
+// the <video> element on Linux can't play asset:// URLs).
+mod media_server;
+
 // Import types from our songs module so we don't have to write
 // songs::Song, songs::Category everywhere.
 use songs::{Category, Song};
@@ -77,6 +81,35 @@ use songs::{Category, Song};
 use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, AtomicU16, Ordering};
+
+// The port the media server bound to (set in .setup(), read by the
+// get_media_server_port IPC command the frontend uses to build its URLs).
+static MEDIA_PORT_USED: AtomicU16 = AtomicU16::new(0);
+
+// -----------------------------------------------------------------------------
+// term_log() — terminal logging with blank-line separators
+// -----------------------------------------------------------------------------
+// ALL app terminal output goes through this. A blank line is printed before
+// EVERY log line (except the very first line of the process), so entries
+// never run together in the terminal — no matter how fast they arrive.
+static TERM_LOG_STARTED: AtomicBool = AtomicBool::new(false);
+
+// get_music_base_path() is called by every IPC command; "Found music/"
+// is logged only on the first call.
+static MUSIC_BASE_LOGGED: AtomicBool = AtomicBool::new(false);
+
+pub(crate) fn term_log(message: &str) {
+    // Exactly one caller wins the "first line" race (no leading gap);
+    // everyone else gets a leading blank line.
+    let first = TERM_LOG_STARTED
+        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+        .is_ok();
+    if !first {
+        eprintln!();
+    }
+    eprintln!("{}", message);
+}
 
 // Import the Manager trait — this gives us access to methods like
 // .asset_protocol_scope() on the AppHandle. Without this import,
@@ -190,22 +223,22 @@ fn get_all_categories(app_handle: tauri::AppHandle) -> Vec<Category> {
 
     // Log how many songs were found (visible in debug console)
     let total_songs: usize = categories.iter().map(|c| c.songs.len()).sum();
-    println!(
+    term_log(&format!(
         "Loaded {} categories with {} total songs from: {:?}",
         categories.len(),
         total_songs,
         base_path
-    );
+    ));
 
     // Log per-category counts for debugging
     for cat in &categories {
-        println!(
+        term_log(&format!(
             "  {} ({}): {} songs | dir: {:?}",
             cat.key,
             cat.label,
             cat.songs.len(),
             base_path.join(&cat.dir)
-        );
+        ));
     }
 
     categories
@@ -662,7 +695,7 @@ fn get_songs_by_category(key: String, app_handle: tauri::AppHandle) -> Vec<Song>
     match category {
         Some((_, _, dir)) => songs::scan_directory(&base_path, dir),
         None => {
-            eprintln!("Unknown category key: {}", key);
+            term_log(&format!("Unknown category key: {}", key));
             Vec::new()
         }
     }
@@ -759,6 +792,63 @@ fn collect_video_stems(dir: &Path) -> HashSet<String> {
     stems
 }
 
+/// The port the media server bound to (0 if it failed to start).
+/// The frontend calls this once at startup to build its media URLs.
+#[tauri::command]
+fn get_media_server_port() -> u16 {
+    MEDIA_PORT_USED.load(Ordering::Relaxed)
+}
+
+/// KEY=VALUE pairs from the app's .env file (next to the music/ directory,
+/// falling back to the current directory). config.js uses this to fetch
+/// secrets (YT_API_KEY, QUEUE_CLEAR_PASSWORD) that are no longer hardcoded
+/// in the tracked config.js.
+#[tauri::command]
+fn get_app_env(app_handle: tauri::AppHandle) -> std::collections::BTreeMap<String, String> {
+    let candidates = vec![
+        get_music_base_path(&app_handle).join(".env"),
+        std::env::current_dir()
+            .map(|cwd| cwd.join(".env"))
+            .unwrap_or_default(),
+    ];
+
+    for path in &candidates {
+        if let Ok(contents) = std::fs::read_to_string(path) {
+            let mut env = std::collections::BTreeMap::new();
+            for line in contents.lines() {
+                let line = line.trim();
+                if line.is_empty() || line.starts_with('#') {
+                    continue;
+                }
+                if let Some((k, v)) = line.split_once('=') {
+                    let k = k.trim();
+                    let mut v = v.trim();
+                    // Strip matching surrounding quotes, if present.
+                    if v.len() >= 2
+                        && ((v.starts_with('"') && v.ends_with('"'))
+                            || (v.starts_with('\'') && v.ends_with('\'')))
+                    {
+                        v = &v[1..v.len() - 1];
+                    }
+                    if !k.is_empty() {
+                        env.insert(k.to_string(), v.to_string());
+                    }
+                }
+            }
+            term_log(&format!(
+                "[pid {}] Loaded {} key(s) from .env ({:?})",
+                std::process::id(),
+                env.len(),
+                path
+            ));
+            return env;
+        }
+    }
+
+    term_log("Warning: no .env file found — YT_API_KEY / QUEUE_CLEAR_PASSWORD will be empty");
+    std::collections::BTreeMap::new()
+}
+
 /// Determines the base path where the music/ folder lives.
 ///
 /// In development: the workspace root (Craigs-Music-Player/rust-jukebox-app/)
@@ -805,14 +895,25 @@ fn get_music_base_path(_app_handle: &tauri::AppHandle) -> PathBuf {
         if exists && is_dir {
             log.push_str(&format!("FOUND music/ at: {:?}\n", candidate));
             let _ = std::fs::write(&log_path, &log);
-            println!("Found music/ directory at: {:?}", candidate);
+            // This function is called on every IPC command — log the
+            // discovery only once per process.
+            if MUSIC_BASE_LOGGED
+                .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+                .is_ok()
+            {
+                term_log(&format!(
+                    "[pid {}] Found music/ directory at: {:?}",
+                    std::process::id(),
+                    candidate
+                ));
+            }
             return candidate.clone();
         }
     }
 
     log.push_str("ERROR: music/ not found anywhere!\n");
     let _ = std::fs::write(&log_path, &log);
-    eprintln!("ERROR: Could not find music/ directory!");
+    term_log("ERROR: Could not find music/ directory!");
     std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
 }
 
@@ -859,9 +960,15 @@ fn main() {
 
             // Allow the junction path (rust-jukebox-app/music/)
             if let Err(e) = scope.allow_directory(&music_dir, true) {
-                eprintln!("Warning: Failed to add music dir to asset scope: {:?}", e);
+                term_log(&format!(
+                    "Warning: Failed to add music dir to asset scope: {:?}",
+                    e
+                ));
             } else {
-                println!("Added to asset scope (junction): {:?}", music_dir);
+                term_log(&format!(
+                    "Added to asset scope (junction): {:?}",
+                    music_dir
+                ));
             }
 
             // Also allow the CANONICAL path (resolves the junction to the real location)
@@ -869,13 +976,35 @@ fn main() {
             // so it MUST be in the allowed patterns.
             if let Ok(canonical) = std::fs::canonicalize(&music_dir) {
                 if let Err(e) = scope.allow_directory(&canonical, true) {
-                    eprintln!(
+                    term_log(&format!(
                         "Warning: Failed to add canonical music dir to asset scope: {:?}",
                         e
-                    );
+                    ));
                 } else {
-                    println!("Added to asset scope (canonical): {:?}", canonical);
+                    term_log(&format!(
+                        "Added to asset scope (canonical): {:?}",
+                        canonical
+                    ));
                 }
+            }
+
+            // -----------------------------------------------------------------
+            // Media server — HTTP fallback for <video> playback
+            // -----------------------------------------------------------------
+            // On Linux the webview's <video> element (GStreamer) can't load
+            // asset:// URLs, so media is served over plain HTTP. Rust picks
+            // a free candidate port from media_server::MEDIA_PORTS (a
+            // random starting offset — the CSP has to enumerate every
+            // candidate since the CSP spec has no wildcard ports). The
+            // frontend fetches the chosen port via get_media_server_port
+            // and builds URLs as http://127.0.0.1:<port> + encodeURI(path).
+            // start() itself logs the bound port (with pid).
+            match media_server::start(&music_dir, &media_server::MEDIA_PORTS) {
+                Ok(port) => MEDIA_PORT_USED.store(port, Ordering::Relaxed),
+                Err(e) => term_log(&format!(
+                    "Warning: Failed to start media server: {}",
+                    e
+                )),
             }
 
             // Log the scope for debugging
@@ -918,7 +1047,7 @@ fn main() {
             // watch playback errors without opening devtools.
             // The JS side emits via window.__TAURI__.event.emit("mejs-terminal-log", ...).
             app.listen("mejs-terminal-log", |event| {
-                eprintln!("[JS] {}", event.payload());
+                term_log(&format!("[JS] {}", event.payload()));
             });
 
             Ok(())
@@ -945,6 +1074,8 @@ fn main() {
             get_shuffle_paths,
             debug_paths,
             speed_test,
+            get_media_server_port,
+            get_app_env,
         ])
         // -----------------------------------------------------------------
         // .run() — Start the application event loop

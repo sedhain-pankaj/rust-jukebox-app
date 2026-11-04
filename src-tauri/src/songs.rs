@@ -35,6 +35,9 @@ use std::path::{Path, PathBuf};
 // "this struct can be converted to JSON automatically".
 use serde::Serialize;
 
+// Terminal logging with blank-line separators (see term_log in main.rs).
+use crate::term_log;
+
 // -----------------------------------------------------------------------------
 // CONSTANTS — equivalent to the PHP defines
 // -----------------------------------------------------------------------------
@@ -229,9 +232,12 @@ pub fn scan_directory(base_path: &Path, dir: &str) -> Vec<Song> {
     let entries = match fs::read_dir(&full_path) {
         Ok(entries) => entries,
         Err(e) => {
-            // eprintln! prints to stderr (like PHP's error_log).
+            // term_log() prints to the terminal with blank-line separators.
             // The {:?} formats the error in debug mode with details.
-            eprintln!("Warning: Could not read directory '{}': {:?}", dir, e);
+            term_log(&format!(
+                "Warning: Could not read directory '{}': {:?}",
+                dir, e
+            ));
             // Return an empty list — no songs in this category.
             // In PHP you'd return []; and in Rust it's Vec::new().
             return Vec::new();
@@ -379,7 +385,10 @@ pub fn get_shuffle_paths(base_path: &Path, category_key: &str) -> Vec<String> {
                 .collect()
         }
         None => {
-            eprintln!("Warning: Unknown category key '{}'", category_key);
+            term_log(&format!(
+            "Warning: Unknown category key '{}'",
+            category_key
+        ));
             Vec::new()
         }
     }
