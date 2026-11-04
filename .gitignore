@@ -22,8 +22,8 @@ Desktop.ini
 # Logs
 *.log
 
-# API keys and secrets
-config.js
+# Secrets live in .env (config.js is tracked app code)
+.env
 
 #opencode and plugins
 .opencode
