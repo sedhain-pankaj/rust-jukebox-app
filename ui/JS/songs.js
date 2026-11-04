@@ -53,7 +53,10 @@ $(document).ready(function () {
       return;
     }
 
-    window.ensureMusicStructure().then(function (validation) {
+    // mediaBaseReady() resolves the media server's port (config.js) — the
+    // table builds video URLs synchronously, so the port must be known first.
+    Promise.all([mediaBaseReady(), window.ensureMusicStructure()]).then(function (results) {
+      var validation = results[1];
       if (!validation.valid) {
         return;
       }
@@ -95,7 +98,7 @@ function buildSongTableHtml(songs) {
 
   songs.forEach(function (song, index) {
     var imgSrc = convertFileSrc(song.thumbnail_abs);
-    var videoSrc = convertFileSrc(song.path_abs);
+    var videoSrc = mediaUrl(song.path_abs);
     html += buildSongTableRowHtml(index + 1, song.name, imgSrc, videoSrc);
   });
 

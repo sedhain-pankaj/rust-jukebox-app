@@ -22,7 +22,6 @@
 // TAURI IPC HELPER (same as songs.js)
 // ---------------------------------------------------------------------------
 var _invoke = window.__TAURI__.core.invoke;
-var _convertFileSrc = window.__TAURI__.core.convertFileSrc;
 
 // ---------------------------------------------------------------------------
 // SHUFFLE ARRAYS — Hold the shuffled song paths per category
@@ -136,9 +135,10 @@ function shuffleIpcCall(key, index) {
   _invoke("get_shuffle_paths", { key: rustKey })
     .then(function (paths) {
       // paths = array of absolute file paths from Rust
-      // Convert each to a Tauri asset URL
+      // Convert each to a media-server URL (the <video> element on Linux
+      // can't play asset:// URLs — see mediaUrl() in config.js)
       shuffleArrays[key] = paths.map(function (p) {
-        return _convertFileSrc(p);
+        return mediaUrl(p);
       });
 
       // Fisher-Yates shuffle — randomize the array
@@ -246,7 +246,7 @@ function shuffler(array, dir_msg) {
 
   // Set video title (extract filename from the asset URL path)
   var video_title = document.getElementById("video_title");
-  // Asset URLs look like: https://asset.localhost/C:/Users/.../Song.mp4
+  // Media URLs look like: http://127.0.0.1:<port>/.../Song.mp4
   // We need to extract just "Song" (without extension)
   var fullPath = decodeURIComponent(array[0]);
   var fileName = fullPath.split("/").pop();

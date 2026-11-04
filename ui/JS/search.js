@@ -82,7 +82,7 @@ function performSearch(searchId, excludeKey, searchMsg, searchKey) {
       );
 
       var imgSrc = convertFileSrcLocal(song.thumbnail_abs);
-      var videoSrc = convertFileSrcLocal(song.path_abs);
+      var videoSrc = mediaUrl(song.path_abs);
       resultsHtml += buildSongTableRowHtml(
         resultIndex,
         songName,

@@ -70,7 +70,14 @@ function sendLogToTerminal(level, message) {
   };
   console.warn = function () {
     origWarn.apply(console, arguments);
-    sendLogToTerminal("console.warn", formatConsoleArgs(arguments));
+    var msg = formatConsoleArgs(arguments);
+    // Known-benign Tauri/Linux one-time noise (IPC falls back to
+    // postMessage) — still visible in the devtools console, but not
+    // worth a terminal line.
+    if (msg.indexOf("IPC custom protocol failed") !== -1) {
+      return;
+    }
+    sendLogToTerminal("console.warn", msg);
   };
 })();
 
@@ -282,13 +289,16 @@ $(document).ready(function () {
       return;
     }
 
-    window.ensureMusicStructure().then(function (validation) {
-      if (!validation.valid) {
-        return;
-      }
+      // mediaBaseReady() resolves the media server's port (config.js) —
+      // the shuffle path builds video URLs, so the port must be known first.
+      Promise.all([mediaBaseReady(), window.ensureMusicStructure()]).then(function (results) {
+        var validation = results[1];
+        if (!validation.valid) {
+          return;
+        }
 
-      // Scale the video element to fit the container (same as original)
-      video_scaler();
+        // Scale the video element to fit the container (same as original)
+        video_scaler();
 
       // Disable text selection in the whole document (kiosk mode)
       selectTextDisabled();
