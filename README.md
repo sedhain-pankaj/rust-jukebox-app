@@ -168,6 +168,42 @@ This produces the `.exe` and a Windows installer in `src-tauri/target/release/bu
 
 ---
 
+## Performance Notes
+
+The app targets a Windows kiosk jukebox on **low-end hardware** with a big library (~1,569 videos, ~74 GB, 10 categories, ~11 MB of jpgs per category). The design decisions below are for that target — each note says what, how, and why.
+
+### Startup & IPC
+
+- **Song library cached in Rust** (`song_cache.rs`). *How:* scanned once in `.setup()` before JS runs (the scan overlaps window/JS loading); every IPC call (`get_all_categories`, `get_songs_by_category`, `get_shuffle_paths`) returns from memory; re-scan only when a category dir's mtime/size changes (10 cheap `metadata()` calls, never a dir read); auto-refresh after an admin copy, plus a `refresh_song_cache` command. *Why:* every IPC call used to re-read 10 directories from disk — on a slow disk each category click, shuffle, and the startup auto-shuffle paid for it.
+- **Single page load.** *How:* the window opens on `about:blank`, navigates to the localhost plugin server (YouTube Referer fix), and falls back to the bundled asset page if the server is down. *Why:* the page used to load twice (asset page → navigation → full reload), parsing ~0.8 MB of scripts (jquery, jquery-ui, mejs) two times.
+- **No UI freezes.** *How:* the blocking work — USB scan, song copy, speed-test download — runs in `spawn_blocking` behind `async` IPC commands; the copy emits per-file `admin-copy-progress` events and is cancelable (flag checked between files). *Why:* sync Tauri commands run on the main thread and freeze the UI event loop — a USB scan or a multi-GB copy would have frozen the screen for seconds to minutes.
+- **Memoized path lookup.** *How:* `get_music_base_path` and the `.env` parse are `OnceLock`-cached; debug-log file writes are gated behind `debug_assertions`. *Why:* the base path is looked up by *every* IPC command and used to write a temp file on each call — a disk write per IPC call on slow hardware.
+
+### UI
+
+- **`loading="lazy"` song thumbnails** — a category view (~356 rows) decodes only the ~15 visible images instead of all ~11 MB of jpgs at once.
+- **Hardcoded static UI** — the 10 category buttons and 9 shuffle links live in `ui/index.html` (kept in sync with the compile-time `CATS` list in Rust, which remains the single source of truth for scanning). They render before the IPC round-trip instead of after. The on-screen keyboard stays JS-built (its timer/caps logic made hardcoding not worth the risk).
+- **One shared startup gate** — `startupGate()` in `validation.js` (admin check → media-server port → music-structure validation, memoized) replaces the copy-pasted gate in `index.js` and `songs.js`.
+- **`preload='metadata'`** on the video element (consistent in markup and `resetPlayer()`) — lighter on a slow disk than `auto`.
+
+### Thumbnails
+
+- Pre-generated jpgs (~30 KB each, from `admin_tools/GenerateImage`) stay the display source — fastest to decode, zero runtime work. Alternative considered: OS/Shell video thumbnails need a COM call per item and cached sizes only go to 1024px, so they aren't a drop-in for a 1920×1080 kiosk grid. Future work: a background "fill missing thumbnails" pass so the tool doesn't have to be run manually.
+
+### Admin mode
+
+- **Done-marker** — `jukebox-transfer.done` on the USB (one `CategoryFolder/File.ext` line per actually-copied song) makes the next startup verify the files are present and skip admin mode, so "Done (Restart Jukebox)" doesn't re-trigger the admin screen; delete the file to re-arm.
+- **Honest countdown** — the 10 s auto-timer starts only when the (async) scan resolves; the UI shows "…" meanwhile.
+- **New-only manual list** with a "Show existing" toggle, row thumbnails (runtime USB asset-scope grant), and a progress modal with per-file line and Cancel.
+
+### Housekeeping
+
+- `const CATS` (zero-allocation), `sort_by_key` sorts (one lowercase alloc per element instead of two per comparison — `cmp_ignore_ascii_case` was rejected: it changes ordering for accented titles), speed-test quality/icon owned by Rust (one threshold source), debug-only commands deleted, dead wrappers dropped, clippy clean (0 warnings), unit tests for scanning + cache invalidation.
+- The speed test uses `reqwest` in `spawn_blocking` rather than a raw `TcpStream`: the test URL is HTTPS and `std` has no TLS (the media server is plain-HTTP localhost only, which is why it can use raw sockets).
+- Known leftovers: stray `music/demo.png`; the PHP→Rust educational comments in the sources are kept as onboarding material.
+
+---
+
 ## Tech Stack
 
 | Layer    | Technology                |
