@@ -479,7 +479,8 @@
   }
 
   // No new songs: grey out AUTO (it would copy nothing) and say so;
-  // Manual stays available for tinkering.
+  // Manual stays available for tinkering — its radio becomes the checked
+  // one, so the UI shows what Confirm will actually do.
   function setAutoDisabled() {
     var option = document.getElementById("admin-auto-option");
     if (!option) {
@@ -488,6 +489,13 @@
     var radio = option.querySelector("input");
     if (radio) {
       radio.disabled = true;
+      radio.checked = false;
+    }
+    var manualRadio = document.querySelector(
+      "input[name='admin-mode'][value='manual']",
+    );
+    if (manualRadio) {
+      manualRadio.checked = true;
     }
     option.classList.add("admin-mode-disabled");
     var desc = option.querySelector(".admin-mode-desc");
