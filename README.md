@@ -121,14 +121,15 @@ Admin mode is a built-in song-transfer workflow — no separate tool needed:
 3. Plug the USB in and (re)start the jukebox. The app detects `admin.key` on any drive letter and opens the **Admin Mode** screen.
 4. Choose a mode:
    - **AUTO** — after a 10 s countdown (cancelled by any input), every *new* song that has a thumbnail is copied automatically.
-   - **Manual** — pick individual songs (thumbnails are shown, so you can see what you're transferring).
+   - **Manual** — pick individual songs (thumbnails are shown, so you can see what you're transferring). The summary shows per category `N new songs, M existing`.
 5. The copy runs with per-file progress and a **Cancel** button. New songs are skipped if the jukebox already has them.
+6. When finished (or if you Cancel on the chooser screen) press **Start Jukebox** — the app reloads (a clean-slate reset, like the old kiosk). **Remove the update drive before pressing it** (both dialogs say so in bold): with the drive still connected, admin mode is simply offered again on the reload — it will show 0 new songs, and Cancel → Start Jukebox takes you in.
 
-After a successful transfer the app writes a **`jukebox-transfer.done`** file to the USB root (one `CategoryFolder/File.ext` line per copied song). On the next startup the app sees the marker, verifies the files are present locally, and **skips admin mode** — so "Done (Restart Jukebox)" doesn't re-trigger the admin screen until the USB is unplugged. To re-run a transfer (e.g. more songs were added to the USB), delete `jukebox-transfer.done`.
+Detection is stateless — no files are written on the machine and nothing is recorded per drive — so the same USB can be plugged into any jukebox, and each one offers the transfer and shows its own "N new / M existing" state. (The reload is not needed for data correctness: the song list comes from Rust over IPC, recomputed from disk and refreshed right after a copy, so the old PHP+Firefox stale-list problem can't happen here. It resets player/queue state and matches the kiosk workflow.)
 
 Notes:
 - Songs without a thumbnail are **ignored** in AUTO mode (they'd show a grey box in the player grid) and are flagged in the summary.
-- The admin flow works on Windows (drive-letter detection). On Linux `detect_admin_drive` simply finds nothing, so admin mode stays dormant.
+- Drive detection is cross-platform: Windows drive letters `D:\`–`Z:\` (the target platform) and udisks2 mounts on Linux (`/run/media/<user>/<name>`, `/media/...`, `/mnt/...`).
 
 ---
 
@@ -192,7 +193,8 @@ The app targets a Windows kiosk jukebox on **low-end hardware** with a big libra
 
 ### Admin mode
 
-- **Done-marker** — `jukebox-transfer.done` on the USB (one `CategoryFolder/File.ext` line per actually-copied song) makes the next startup verify the files are present and skip admin mode, so "Done (Restart Jukebox)" doesn't re-trigger the admin screen; delete the file to re-arm.
+- **Stateless admin detection** — `admin.key` on a USB root is the only trigger; no transfer files are written on the machines. The admin screen itself is the status view (`N new songs, M existing`), and a restart with the drive connected re-offers it — the Cancel/Done dialogs tell the admin to unplug the drive before restarting. The same USB works on any jukebox, nothing to clean up.
+- **Reload exit** — Cancel and "Transfer Complete" both offer **Start Jukebox**, which reloads the app (clean-slate reset, old kiosk workflow). The reload is a UX choice, not a data necessity: the Rust song cache is refreshed the moment a copy finishes, so new songs would appear without it. Dialogs warn to remove the drive first, since a reload with it connected re-offers admin mode.
 - **Honest countdown** — the 10 s auto-timer starts only when the (async) scan resolves; the UI shows "…" meanwhile.
 - **New-only manual list** with a "Show existing" toggle, row thumbnails (runtime USB asset-scope grant), and a progress modal with per-file line and Cancel.
 

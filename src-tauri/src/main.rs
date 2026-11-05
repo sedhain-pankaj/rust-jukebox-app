@@ -144,6 +144,8 @@ struct AdminFolderSummary {
     label: String,
     new_with_thumbs: usize,
     new_missing_thumbs: usize,
+    /// Videos on the USB that this jukebox already has locally.
+    existing: usize,
 }
 
 #[derive(serde::Serialize)]
@@ -334,52 +336,66 @@ fn validate_music_structure() -> MusicStructureValidation {
     }
 }
 
-/// Marker file (on the USB root) written by copy_admin_songs after a
-/// successful transfer: one "CategoryFolder/File.ext" line per copied video.
-/// Without it, "Done (Restart Jukebox)" re-runs detection, finds admin.key
-/// again (the USB is still connected) and re-enters admin mode on every
-/// restart until the USB is unplugged. Deleting the file re-arms the flow.
-const TRANSFER_MARKER: &str = "jukebox-transfer.done";
+/// USB root candidates. Windows (the target platform): drive letters D:\–Z:\.
+/// Linux: udisks2 mounts — /run/media/<user>/<name>, /media/..., /mnt/... —
+/// checked at both the <base>/<name> and <base>/<user>/<name> levels.
+fn usb_candidate_roots() -> Vec<PathBuf> {
+    #[cfg(windows)]
+    {
+        ('D'..='Z')
+            .map(|l| PathBuf::from(format!("{l}:\\")))
+            .filter(|p| p.is_dir())
+            .collect()
+    }
+    #[cfg(not(windows))]
+    {
+        let mut out: Vec<PathBuf> = Vec::new();
+        for base in [
+            PathBuf::from("/run/media"),
+            PathBuf::from("/media"),
+            PathBuf::from("/mnt"),
+        ] {
+            let entries = match fs::read_dir(&base) {
+                Ok(e) => e,
+                Err(_) => continue,
+            };
+            for entry in entries.flatten() {
+                let p = entry.path();
+                if !p.is_dir() {
+                    continue;
+                }
+                if let Ok(sub) = fs::read_dir(&p) {
+                    out.extend(sub.flatten().map(|e| e.path()).filter(|sp| sp.is_dir()));
+                }
+                out.push(p);
+            }
+        }
+        out
+    }
+}
 
+// Detection is deliberately stateless: admin.key on any USB root is all it
+// takes to offer admin mode. No per-machine "already transferred" record —
+// the admin screen itself shows the state ("N new songs, M existing"), and
+// a still-connected drive re-offering the screen after a restart is a
+// feature (it confirms the drive is fully in sync). That keeps the same
+// USB usable on any jukebox without writing files on the machines.
 #[tauri::command]
 fn detect_admin_drive() -> AdminDriveDetection {
     let reason = String::from("admin.key not found on any drive.");
-    let local_music = get_music_base_path().join("music");
 
-    for letter in 'D'..='Z' {
-        let root = PathBuf::from(format!("{}:\\", letter));
-        if !root.exists() {
+    for root in usb_candidate_roots() {
+        if !root.join("admin.key").exists() {
             continue;
         }
-        let key_path = root.join("admin.key");
-        if key_path.exists() {
-            // Previous transfer from this drive completed and every listed
-            // file is present locally → skip admin mode.
-            let completed_transfer = read_transfer_marker(&root).and_then(|copied| {
-                copied
-                    .iter()
-                    .all(|rel| local_music.join(rel).exists())
-                    .then_some(copied.len())
-            });
-            if let Some(count) = completed_transfer {
-                return AdminDriveDetection {
-                    found: false,
-                    root_path: String::new(),
-                    music_path: String::new(),
-                    reason: format!(
-                        "Transfer from {} already complete ({count} songs). Delete {TRANSFER_MARKER} to re-run.",
-                        root.display()
-                    ),
-                };
-            }
-            let music_path = root.join("music");
-            return AdminDriveDetection {
-                found: true,
-                root_path: root.to_string_lossy().replace('\\', "/"),
-                music_path: music_path.to_string_lossy().replace('\\', "/"),
-                reason: String::new(),
-            };
-        }
+
+        let music_path = root.join("music");
+        return AdminDriveDetection {
+            found: true,
+            root_path: root.to_string_lossy().replace('\\', "/"),
+            music_path: music_path.to_string_lossy().replace('\\', "/"),
+            reason: String::new(),
+        };
     }
 
     AdminDriveDetection {
@@ -388,19 +404,6 @@ fn detect_admin_drive() -> AdminDriveDetection {
         music_path: String::new(),
         reason,
     }
-}
-
-/// Parse the transfer marker into relative "CategoryFolder/File.ext" paths.
-/// Returns None if the file is missing or empty.
-fn read_transfer_marker(usb_root: &Path) -> Option<Vec<String>> {
-    let raw = fs::read_to_string(usb_root.join(TRANSFER_MARKER)).ok()?;
-    let paths: Vec<String> = raw
-        .lines()
-        .map(str::trim)
-        .filter(|l| !l.is_empty())
-        .map(str::to_string)
-        .collect();
-    (!paths.is_empty()).then_some(paths)
 }
 
 /// Async wrapper: the USB scan (10 read_dir passes + 2 stat calls per video
@@ -505,6 +508,7 @@ fn scan_admin_usb_impl(usb_music: &Path, base: &Path) -> AdminUsbScanResult {
         let mut songs: Vec<AdminSongEntry> = Vec::new();
         let mut new_with_thumbs: usize = 0;
         let mut new_missing_thumbs: usize = 0;
+        let mut existing: usize = 0;
 
         for entry in entries.flatten() {
             let Ok(file_type) = entry.file_type() else {
@@ -546,6 +550,8 @@ fn scan_admin_usb_impl(usb_music: &Path, base: &Path) -> AdminUsbScanResult {
                 } else {
                     new_missing_thumbs += 1;
                 }
+            } else {
+                existing += 1;
             }
 
             let video_rel = format!("{}/{}", folder_name, filename);
@@ -577,6 +583,7 @@ fn scan_admin_usb_impl(usb_music: &Path, base: &Path) -> AdminUsbScanResult {
             label: label.to_string(),
             new_with_thumbs,
             new_missing_thumbs,
+            existing,
         });
 
         songs_by_folder.push(AdminFolderSongs {
@@ -640,7 +647,6 @@ fn copy_admin_songs_impl(
     let mut copied: usize = 0;
     let mut skipped: usize = 0;
     let mut errors: Vec<String> = Vec::new();
-    let mut copied_rels: Vec<String> = Vec::new();
     let total = selections.len();
 
     for (i, selection) in selections.iter().enumerate() {
@@ -673,13 +679,7 @@ fn copy_admin_songs_impl(
         }
 
         match fs::copy(&src_video, &dest_video) {
-            Ok(_) => {
-                copied += 1;
-                copied_rels.push(format!(
-                    "{}/{}",
-                    selection.folder, selection.filename
-                ));
-            }
+            Ok(_) => copied += 1,
             Err(e) => {
                 errors.push(format!(
                     "Failed to copy video {}: {}",
@@ -718,31 +718,6 @@ fn copy_admin_songs_impl(
                 e
             ));
         }
-    }
-
-    // Write (or extend) the done-marker on the USB root so the next
-    // startup skips admin mode for an already-completed transfer. Only
-    // actually-copied files are recorded — a failed copy must NOT mark the
-    // transfer done, or the missing song would never be offered again.
-    if let Some(usb_root) =
-        usb_music.parent().filter(|_| !copied_rels.is_empty())
-    {
-        let existing_raw = fs::read_to_string(usb_root.join(TRANSFER_MARKER))
-            .unwrap_or_default();
-        let existing = existing_raw
-            .lines()
-            .map(str::trim)
-            .filter(|l| !l.is_empty());
-        let mut lines: Vec<String> = existing.map(str::to_string).collect();
-        for rel in &copied_rels {
-            if !lines.contains(rel) {
-                lines.push(rel.clone());
-            }
-        }
-        let _ = fs::write(
-            usb_root.join(TRANSFER_MARKER),
-            lines.join("\n") + "\n",
-        );
     }
 
     // The library changed — refresh the pre-scan cache so the new songs

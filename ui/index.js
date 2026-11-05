@@ -280,38 +280,44 @@ function mejs_media_Player(func_restarter, sourceUrl) {
 // =============================================================================
 // INITIALIZATION — Runs once when the DOM is ready
 // =============================================================================
+// Normal-mode initialization. Runs behind the startup gate at page load
+// (every load, including the "Start Jukebox" reload from admin mode).
+window.initJukeboxUI = function (validation) {
+  if (!validation) {
+    return; // admin mode owns the UI, or validation failed
+  }
+
+  // Scale the video element to fit the container (same as original)
+  video_scaler();
+
+  // Disable text selection in the whole document (kiosk mode)
+  selectTextDisabled();
+
+  // Set up search input toggling (All Songs vs Karaoke)
+  searchCondition();
+
+  // Set up 80's auto-shuffle when idle
+  autoShuffle();
+
+  // Set up skip button handler
+  skipVideo();
+
+  // Auto-scroll queue to top after 10s of inactivity
+  queue_scroll_top();
+
+  // Initialize jQuery UI volume slider
+  volume_slider();
+
+  // Set up volume +/- buttons and mute toggle
+  volume_changer();
+};
+
 $(document).ready(function () {
   // Shared startup gate (validation.js): admin check + media server port +
   // music structure validation, memoized. The shuffle path builds video
   // URLs, so the port must be known before this resolves.
   window.startupGate().then(function (validation) {
-    if (!validation) {
-      return; // admin mode owns the UI, or validation failed
-    }
-
-    // Scale the video element to fit the container (same as original)
-    video_scaler();
-
-    // Disable text selection in the whole document (kiosk mode)
-    selectTextDisabled();
-
-    // Set up search input toggling (All Songs vs Karaoke)
-    searchCondition();
-
-    // Set up 80's auto-shuffle when idle
-    autoShuffle();
-
-    // Set up skip button handler
-    skipVideo();
-
-    // Auto-scroll queue to top after 10s of inactivity
-    queue_scroll_top();
-
-    // Initialize jQuery UI volume slider
-    volume_slider();
-
-    // Set up volume +/- buttons and mute toggle
-    volume_changer();
+    window.initJukeboxUI(validation);
   });
 });
 

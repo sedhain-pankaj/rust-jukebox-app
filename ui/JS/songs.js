@@ -37,15 +37,22 @@ function loadCategoriesOnce() {
 
 window.loadCategoriesOnce = loadCategoriesOnce;
 
+// Category buttons + song table initialization. Runs behind the startup
+// gate at page load (every load, including the "Start Jukebox" reload
+// from admin mode).
+window.initJukeboxSongs = function (validation) {
+  if (!validation) {
+    return; // admin mode owns the UI, or validation failed
+  }
+  loadCategoriesOnce();
+};
+
 $(document).ready(function () {
   // Shared startup gate (validation.js): admin check + media server port +
   // music structure validation, memoized. The song table builds video URLs
   // synchronously, so the port must be known before this resolves.
   window.startupGate().then(function (validation) {
-    if (!validation) {
-      return; // admin mode owns the UI, or validation failed
-    }
-    loadCategoriesOnce();
+    window.initJukeboxSongs(validation);
   });
 });
 

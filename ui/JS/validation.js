@@ -135,16 +135,53 @@ window.ensureMusicStructure = function () {
 };
 
 // ---------------------------------------------------------------------------
+// jukeboxReady() — the heavy part of the startup gate, without the admin
+// check: media server port + music structure validation, memoized.
+//
+// startupGate() (below) awaits admin detection first, then reuses this.
+//
+// Resolves with the validation result when ready, or null when a gate
+// dependency failed. mediaBaseReady() is part of the promise, so callers
+// can build media URLs immediately after.
+// ---------------------------------------------------------------------------
+window.jukeboxReady = (function () {
+  var readyPromise = null;
+
+  return function () {
+    if (!readyPromise) {
+      // Guard: the (fallback) asset page can be cut off before its
+      // deferred scripts finish, so validation.js may not have run
+      // there. Skip validation in that case — it runs on the real page.
+      var validationPromise;
+      if (typeof window.ensureMusicStructure === "function") {
+        validationPromise = window.ensureMusicStructure();
+      } else {
+        console.warn(
+          "ensureMusicStructure unavailable — skipping startup validation"
+        );
+        validationPromise = Promise.resolve({ valid: true });
+      }
+
+      readyPromise = Promise.all([mediaBaseReady(), validationPromise]).then(
+        function (results) {
+          return results[1] && results[1].valid ? results[1] : null;
+        }
+      );
+    }
+    return readyPromise;
+  };
+})();
+
+// ---------------------------------------------------------------------------
 // startupGate() — the single shared startup gate (backlog #9).
 //
-// Previously this exact sequence (admin check → media server port → music
+// Previously the exact sequence (admin check → media server port → music
 // structure validation) was copy-pasted in index.js and songs.js. It is
 // memoized: both callers share one promise chain.
 //
 // Resolves with the validation result when the app may proceed, or null
 // when it must not (admin mode owns the UI, validation failed, or a gate
-// dependency failed). mediaBaseReady() is part of the gate, so callers can
-// build media URLs immediately after.
+// dependency failed).
 // ---------------------------------------------------------------------------
 window.startupGate = (function () {
   var gatePromise = null;
@@ -160,25 +197,7 @@ window.startupGate = (function () {
           if (window.__adminMode && window.__adminMode.active) {
             return null; // admin mode owns the UI
           }
-
-          // Guard: the (fallback) asset page can be cut off before its
-          // deferred scripts finish, so validation.js may not have run
-          // there. Skip the gate in that case — it runs on the real page.
-          var validationPromise;
-          if (typeof window.ensureMusicStructure === "function") {
-            validationPromise = window.ensureMusicStructure();
-          } else {
-            console.warn(
-              "ensureMusicStructure unavailable — skipping startup validation"
-            );
-            validationPromise = Promise.resolve({ valid: true });
-          }
-
-          return Promise.all([mediaBaseReady(), validationPromise]).then(
-            function (results) {
-              return results[1] && results[1].valid ? results[1] : null;
-            }
-          );
+          return window.jukeboxReady();
         })
         .catch(function (error) {
           console.error("startup gate failed:", error);

@@ -106,6 +106,17 @@
   transform: scale(1.4);
 }
 
+/* AUTO greyed out when the scan found no new songs. */
+.admin-mode-disabled {
+  opacity: 0.45;
+  cursor: default;
+  border-color: #3a3a3a;
+}
+
+.admin-mode-disabled input {
+  cursor: default;
+}
+
 .admin-mode-title {
   font-size: clamp(1.2vw, 1.8vw, 2.6vw);
   font-weight: bold;

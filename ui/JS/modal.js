@@ -48,15 +48,17 @@ function jquery_modal(options) {
     width: dialogWidth,
     modal: true,
     open: function () {
-      //clear any previous timers and start new one
+      //clear any previous timers; closeTime 0 = stay open indefinitely
       clearInterval(countdownInterval);
-      countdownInterval = setInterval(function () {
-        countdown--;
-        $(".ui-dialog-title").html(settings.title + " (" + countdown + "s)");
-        if (countdown <= 0) {
-          $("#dialog-confirm").dialog("close");
-        }
-      }, 1000);
+      if (settings.closeTime > 0) {
+        countdownInterval = setInterval(function () {
+          countdown--;
+          $(".ui-dialog-title").html(settings.title + " (" + countdown + "s)");
+          if (countdown <= 0) {
+            $("#dialog-confirm").dialog("close");
+          }
+        }, 1000);
+      }
     },
     close: function () {
       clearInterval(countdownInterval);

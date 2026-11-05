@@ -18,12 +18,10 @@
 
   function setAdminActive(active) {
     window.__adminMode.active = active;
-    if (active) {
-      document.getElementById("admin-root").classList.remove("hidden");
-      document.getElementById("app-root").classList.add("hidden");
-      if (typeof window.selectTextDisabled === "function") {
-        window.selectTextDisabled("#admin-root");
-      }
+    document.getElementById("admin-root").classList.toggle("hidden", !active);
+    document.getElementById("app-root").classList.toggle("hidden", active);
+    if (active && typeof window.selectTextDisabled === "function") {
+      window.selectTextDisabled("#admin-root");
     }
   }
 
@@ -75,9 +73,16 @@
       var newWithThumbs = item.new_with_thumbs || item.newWithThumbs || 0;
       var newMissingThumbs =
         item.new_missing_thumbs || item.newMissingThumbs || 0;
+      var existing = item.existing || 0;
       var line = document.createElement("div");
       line.className = "admin-summary-line";
-      line.textContent = folderName + ": " + newWithThumbs + " new songs";
+      line.textContent =
+        folderName +
+        ": " +
+        newWithThumbs +
+        " new songs, " +
+        existing +
+        " existing";
       list.appendChild(line);
 
       if (newMissingThumbs > 0) {
@@ -254,19 +259,22 @@
       result.copied +
       " songs. Skipped " +
       result.skipped +
-      ".";
+      ".<br><br>" +
+      "<b>Remove the update-drive before pressing 'Start Jukebox'.</b>";
 
     if (result.errors && result.errors.length) {
       message += "<br><br><b>Errors:</b><br>" + result.errors.join("<br>");
     }
 
+    // closeTime 0 = no auto-close: an AFK admin must still see the result
+    // (and the "remove the update-drive" warning) when they come back.
     jquery_modal({
       message: message,
       title: "Transfer Complete",
-      closeTime: 600000,
-      buttonText: "Done (Restart Jukebox)",
+      closeTime: 0,
+      buttonText: "Start Jukebox",
       buttonAction: function () {
-        restartApp();
+        startJukebox();
       },
     });
   }
@@ -325,11 +333,16 @@
     } catch (_) {}
   }
 
-  function restartApp() {
-    // Hard reset back to startup state (closest equivalent to Ctrl+Shift+R).
+  // "Start Jukebox" — full page reload (the old kiosk behaviour). It is
+  // a clean-slate choice (player/queue/JS state all reset), not a data
+  // necessity: song lists come from Rust over IPC, recomputed from disk
+  // with mtime invalidation and refreshed right after a copy, so the old
+  // PHP+Firefox stale-list problem can't happen. One side effect the
+  // dialogs warn about: a reload with the drive still connected
+  // re-offers admin mode.
+  function startJukebox() {
     stopAutoTimerNow("system");
     copyRunId += 1; // invalidate any late copy callbacks
-    window.__adminMode.active = false;
     closeAnyModal();
     try {
       window.location.reload();
@@ -465,6 +478,24 @@
     }, 1000);
   }
 
+  // No new songs: grey out AUTO (it would copy nothing) and say so;
+  // Manual stays available for tinkering.
+  function setAutoDisabled() {
+    var option = document.getElementById("admin-auto-option");
+    if (!option) {
+      return;
+    }
+    var radio = option.querySelector("input");
+    if (radio) {
+      radio.disabled = true;
+    }
+    option.classList.add("admin-mode-disabled");
+    var desc = option.querySelector(".admin-mode-desc");
+    if (desc) {
+      desc.textContent = "No new songs detected. AUTO Mode Disabled.";
+    }
+  }
+
   function runAutoCopy(skipConfirm) {
     var selections = collectSelectableSongs(window.__adminMode.scan);
     if (skipConfirm) {
@@ -505,8 +536,19 @@
 
     $(document).on("click", "#admin-confirm", function () {
       stopAutoTimerNow("input");
-      var checked = document.querySelector("input[name='admin-mode']:checked");
+      // A disabled (greyed) AUTO radio never counts as selected.
+      var checked = document.querySelector(
+        "input[name='admin-mode']:checked:not(:disabled)",
+      );
       if (!checked) {
+        var autoRadio = document.querySelector(
+          "input[name='admin-mode'][value='auto']",
+        );
+        if (autoRadio && autoRadio.disabled) {
+          // AUTO disabled (no new songs) — Manual is the only mode.
+          showManualPage();
+          return;
+        }
         jquery_modal({
           message: "Please select AUTO or MANUAL mode.",
           title: "Select Mode",
@@ -530,9 +572,23 @@
         });
         return;
       }
-      // Invalidate any late callbacks and go back to jukebox.
+      // Cancel → confirm, then a full reload. The bold warning covers the
+      // side effect: a reload with the drive still connected re-offers
+      // admin mode.
       copyRunId += 1;
-      restartApp();
+      jquery_modal({
+        message:
+          "This skips the USB transfer and starts the jukebox with the " +
+          "current library.<br><br>" +
+          "<b>Remove the update-drive before pressing 'Start Jukebox'.</b>",
+        title: "Cancel transfer?",
+        dialogClass: "show-closer",
+        closeTime: 30000,
+        buttonText: "Start Jukebox",
+        buttonAction: function () {
+          startJukebox();
+        },
+      });
     });
 
     $(document).on("click", "#admin-manual-confirm", function () {
@@ -654,7 +710,11 @@
         renderSummary(scan);
         buildManualList(scan);
         bindAdminHandlers();
-        startAutoTimer();
+        if (collectSelectableSongs(scan).length > 0) {
+          startAutoTimer();
+        } else {
+          setAutoDisabled();
+        }
         return { active: true };
       })
       .catch(function (err) {
