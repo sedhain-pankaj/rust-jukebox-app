@@ -78,38 +78,9 @@ var shuffleToRustKey = {
 };
 
 // ---------------------------------------------------------------------------
-// Shuffle category names for building the sidenav links
-// ---------------------------------------------------------------------------
-var shuffleCategoryNames = {
-  shuffle_5060: "50's + 60's",
-  shuffle_70: "70's",
-  shuffle_80: "80's",
-  shuffle_90: "90's",
-  shuffle_2000: "2000's",
-  shuffle_LatestHits: "Latest Hits",
-  shuffle_Country: "Country",
-  shuffle_SpecialOccasion: "Special Occasion",
-  shuffle_ChristmasSong: "Christmas Song",
-};
-
-// ---------------------------------------------------------------------------
-// BUILD SHUFFLE SIDENAV LINKS ON STARTUP
-// ---------------------------------------------------------------------------
-// In the original PHP, these were built with <?php foreach ?>
-// Now we build them in JS from the shuffleCategoryNames map.
-$(function () {
-  var linksContainer = document.getElementById("shuffle-links");
-  if (linksContainer) {
-    Object.keys(shuffleCategoryNames).forEach(function (key) {
-      var link = document.createElement("a");
-      link.id = key;
-      link.textContent = shuffleCategoryNames[key];
-      link.style.cursor = "pointer";
-      linksContainer.appendChild(link);
-      linksContainer.appendChild(document.createElement("br"));
-    });
-  }
-});
+// (The sidenav links themselves are hardcoded in index.html — the order
+// there must match the key order of shuffleArrays, which drives the
+// dir_msg_collection index in the click binding below.)
 
 // ---------------------------------------------------------------------------
 // shuffleIpcCall() — Fetch paths from Rust and shuffle them

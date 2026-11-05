@@ -1,6 +1,7 @@
 (function () {
   var tauriCore = window.__TAURI__ && window.__TAURI__.core;
   var invoke = tauriCore && tauriCore.invoke;
+  var convertFileSrc = tauriCore && tauriCore.convertFileSrc;
 
   window.__adminMode = window.__adminMode || {
     active: false,
@@ -107,6 +108,8 @@
     var container = document.getElementById("admin-manual-list");
     container.innerHTML = "";
 
+    var musicPath = getMusicPath(window.__adminMode.drive);
+
     var folders = scan.songs_by_folder || scan.songsByFolder || [];
     folders.forEach(function (folder) {
       var folderName = folder.folder || folder.folderName || "";
@@ -135,6 +138,23 @@
 
         if (!isSelectable) {
           row.classList.add("disabled");
+        }
+
+        // New-only by default (backlog #7): a big USB renders hundreds of
+        // rows. Already-present songs are hidden unless the "Show existing
+        // songs" toggle is on (CSS: .admin-row-existing).
+        if (!isNew) {
+          row.classList.add("admin-row-existing");
+        }
+
+        // Show the USB's img/ thumbnail (asset protocol, granted by
+        // admin_grant_usb_scope) instead of a text-only row.
+        if (hasThumbnail && thumbnailRel && musicPath && convertFileSrc) {
+          var thumb = document.createElement("img");
+          thumb.className = "admin-thumb";
+          thumb.loading = "lazy";
+          thumb.src = convertFileSrc(musicPath + "/" + thumbnailRel);
+          row.appendChild(thumb);
         }
 
         if (!hasThumbnail) {
@@ -280,7 +300,11 @@
       musicPath +
       "<br><br>" +
       summaryHtml +
-      "<br><b>Destination:</b> Local jukebox music folder";
+      "<br><b>Destination:</b> Local jukebox music folder" +
+      // Per-file progress (updated by the admin-copy-progress event) +
+      // cancel (Rust checks the flag between files).
+      "<br><div id='admin-copy-progress-line' class='admin-copy-progress-line'>Starting...</div>" +
+      "<button id='admin-copy-cancel' class='admin-confirm-btn admin-copy-cancel-btn'>Cancel</button>";
 
     jquery_modal({
       message: message,
@@ -339,6 +363,14 @@
     window.__adminMode.lastCopySelections = selections.slice();
 
     showProgressModal(selections);
+
+    // Cancel → Rust's COPY_CANCELLED flag is checked between files.
+    var cancelBtn = document.getElementById("admin-copy-cancel");
+    if (cancelBtn) {
+      cancelBtn.addEventListener("click", function () {
+        invoke("cancel_admin_copy");
+      });
+    }
 
     var musicPath = getMusicPath(window.__adminMode.drive);
     invoke("copy_admin_songs", {
@@ -536,6 +568,15 @@
       );
     });
 
+    // New-only by default: reveal the already-present rows on demand.
+    $(document).on("click", "#admin-show-existing", function () {
+      var list = document.getElementById("admin-manual-list");
+      var showing = list.classList.toggle("admin-show-existing");
+      this.textContent = showing
+        ? "Hide existing songs"
+        : "Show existing songs";
+    });
+
     ["mousedown", "click", "touchstart", "keydown"].forEach(function (evt) {
       document.addEventListener(evt, function () {
         // Any input while on the chooser page cancels AUTO permanently.
@@ -551,12 +592,55 @@
     });
   }
 
+  function setCountdownScanning() {
+    var el = document.getElementById("admin-auto-countdown");
+    if (el) {
+      el.textContent = "…";
+    }
+  }
+
+  // Per-file copy progress (emitted by Rust's copy_admin_songs).
+  function bindCopyProgressListener() {
+    if (
+      tauriCore &&
+      tauriCore.event &&
+      typeof tauriCore.event.listen === "function"
+    ) {
+      tauriCore.event.listen("admin-copy-progress", function (event) {
+        var line = document.getElementById("admin-copy-progress-line");
+        if (line && event.payload) {
+          line.textContent =
+            event.payload.done +
+            " / " +
+            event.payload.total +
+            " — " +
+            event.payload.filename;
+        }
+      });
+    }
+  }
+
   function initAdmin(driveInfo) {
     if (!invoke) {
       return Promise.resolve({ active: false });
     }
 
     var musicPath = getMusicPath(driveInfo);
+
+    // The chooser shows "Auto will start in 10s" while the USB scan runs —
+    // show "…" meanwhile so the displayed timer is honest. startAutoTimer()
+    // (called after the scan resolves below) resets it to 10 and starts.
+    setCountdownScanning();
+
+    // Let the manual list show the USB's img/ thumbnails via the asset
+    // protocol (fire and forget — the scan below doesn't depend on it).
+    if (musicPath) {
+      invoke("admin_grant_usb_scope", {
+        musicPath: musicPath,
+        music_path: musicPath,
+      });
+    }
+
     return invoke("scan_admin_usb", { musicPath: musicPath, music_path: musicPath })
       .then(function (scan) {
         window.__adminMode.scan = scan;
@@ -586,6 +670,7 @@
 
     // Bind handlers early so Confirm always responds, even during scan or with 0 new songs.
     bindAdminHandlers();
+    bindCopyProgressListener();
 
     return invoke("detect_admin_drive")
       .then(function (result) {

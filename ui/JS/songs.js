@@ -10,6 +10,9 @@ var invoke = window.__TAURI__.core.invoke;
 var convertFileSrc = window.__TAURI__.core.convertFileSrc;
 var categoriesLoaded = false;
 
+// Fills the song cache from Rust. The category BUTTONS are hardcoded in
+// index.html (they match the compile-time constant songs::CATS in Rust),
+// so they appear before the IPC round-trip; this only loads the data.
 function loadCategoriesOnce() {
   if (categoriesLoaded) {
     return;
@@ -18,21 +21,12 @@ function loadCategoriesOnce() {
 
   invoke("get_all_categories")
     .then(function (categories) {
-      var buttonsParent = document.querySelector(".buttons_leftblock");
-      var youtubeHeading = document.getElementById("youtube-heading");
-
       categories.forEach(function (category) {
         cache[category.key] = {
           songs: category.songs,
           msg: category.label,
           html: null,
         };
-
-        var button = document.createElement("button");
-        button.className = "button-left";
-        button.id = category.key;
-        button.textContent = category.label;
-        buttonsParent.insertBefore(button, youtubeHeading);
       });
     })
     .catch(function (error) {
@@ -44,43 +38,22 @@ function loadCategoriesOnce() {
 window.loadCategoriesOnce = loadCategoriesOnce;
 
 $(document).ready(function () {
-  var adminReady = window.__adminModeReady
-    ? window.__adminModeReady()
-    : Promise.resolve({ active: false });
-
-  adminReady.then(function () {
-    if (window.__adminMode && window.__adminMode.active) {
-      return;
+  // Shared startup gate (validation.js): admin check + media server port +
+  // music structure validation, memoized. The song table builds video URLs
+  // synchronously, so the port must be known before this resolves.
+  window.startupGate().then(function (validation) {
+    if (!validation) {
+      return; // admin mode owns the UI, or validation failed
     }
-
-    // mediaBaseReady() resolves the media server's port (config.js) — the
-    // table builds video URLs synchronously, so the port must be known first.
-    //
-    // Guard: the first (asset://) page can be cut off by the navigation to
-    // the localhost URL before its deferred scripts all finished, so
-    // validation.js may not have run there. Skip the gate in that case —
-    // it will run on the real (localhost) page, where scripts load fully.
-    var validationPromise;
-    if (typeof window.ensureMusicStructure === "function") {
-      validationPromise = window.ensureMusicStructure();
-    } else {
-      console.warn("ensureMusicStructure unavailable — skipping startup validation");
-      validationPromise = Promise.resolve({ valid: true });
-    }
-
-    Promise.all([mediaBaseReady(), validationPromise]).then(function (results) {
-      var validation = results[1];
-      if (!validation.valid) {
-        return;
-      }
-
     loadCategoriesOnce();
   });
 });
-});
 
+// data-key on the hardcoded category buttons (id kept as a fallback so the
+// speedtest button — also class .button-left — is ignored via the cache
+// guard below).
 $(document).on("click", ".button-left", function () {
-  var id = $(this).attr("id");
+  var id = $(this).attr("data-key") || $(this).attr("id");
   if (cache[id]) {
     if (cache[id].html === null) {
       cache[id].html = buildSongTableHtml(cache[id].songs);
@@ -143,10 +116,14 @@ function buildSongTableRowHtml(index, songName, imgSrc, videoSrc, nameHtml) {
     "\" data-dir=\"" +
     escapeHtmlAttr(videoSrc) +
     "\">" +
-    "<th id='index'>" +
+    // class instead of id="index" (was a duplicate DOM id on every row)
+    "<th class='song_index'>" +
     index +
     ".</th>" +
-    "<th><img src='" +
+    // loading=lazy (backlog #3): only the ~15 visible rows decode —
+    // a category view no longer decodes all ~356 thumbnails at once.
+    // Honored by both WebView2 (Chromium) and WebKitGTK.
+    "<th><img loading='lazy' src='" +
     imgSrc +
     "' onerror=\"this.style.backgroundColor='#555'\"></th>" +
     "<td>" +

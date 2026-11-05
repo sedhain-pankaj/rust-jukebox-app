@@ -157,10 +157,11 @@ function resetPlayer() {
 
   mejsCurrentRestarter = null;
 
-  // Recreate a blank video element
+  // Recreate a blank video element. preload='metadata' (matches the initial
+  // markup in index.html) — lighter on a slow disk than 'auto'.
   $("#video_container").empty();
   $("#video_container").html(
-    "<video id='video' src='' autoplay preload='auto'></video>",
+    "<video id='video' src='' autoplay preload='metadata'></video>",
   );
   video_scaler();
 }
@@ -280,60 +281,37 @@ function mejs_media_Player(func_restarter, sourceUrl) {
 // INITIALIZATION — Runs once when the DOM is ready
 // =============================================================================
 $(document).ready(function () {
-  var adminReady = window.__adminModeReady
-    ? window.__adminModeReady()
-    : Promise.resolve({ active: false });
-
-  adminReady.then(function () {
-    if (window.__adminMode && window.__adminMode.active) {
-      return;
+  // Shared startup gate (validation.js): admin check + media server port +
+  // music structure validation, memoized. The shuffle path builds video
+  // URLs, so the port must be known before this resolves.
+  window.startupGate().then(function (validation) {
+    if (!validation) {
+      return; // admin mode owns the UI, or validation failed
     }
 
-      // mediaBaseReady() resolves the media server's port (config.js) —
-      // the shuffle path builds video URLs, so the port must be known first.
-      //
-      // Guard: the first (asset://) page can be cut off by the navigation to
-      // the localhost URL before its deferred scripts all finished, so
-      // validation.js may not have run there. Skip the gate in that case —
-      // it will run on the real (localhost) page, where scripts load fully.
-      var validationPromise;
-      if (typeof window.ensureMusicStructure === "function") {
-        validationPromise = window.ensureMusicStructure();
-      } else {
-        console.warn("ensureMusicStructure unavailable — skipping startup validation");
-        validationPromise = Promise.resolve({ valid: true });
-      }
+    // Scale the video element to fit the container (same as original)
+    video_scaler();
 
-      Promise.all([mediaBaseReady(), validationPromise]).then(function (results) {
-        var validation = results[1];
-        if (!validation.valid) {
-          return;
-        }
+    // Disable text selection in the whole document (kiosk mode)
+    selectTextDisabled();
 
-        // Scale the video element to fit the container (same as original)
-        video_scaler();
+    // Set up search input toggling (All Songs vs Karaoke)
+    searchCondition();
 
-      // Disable text selection in the whole document (kiosk mode)
-      selectTextDisabled();
+    // Set up 80's auto-shuffle when idle
+    autoShuffle();
 
-      // Set up search input toggling (All Songs vs Karaoke)
-      searchCondition();
+    // Set up skip button handler
+    skipVideo();
 
-      // Set up 80's auto-shuffle when idle
-      autoShuffle();
+    // Auto-scroll queue to top after 10s of inactivity
+    queue_scroll_top();
 
-      // Set up skip button handler
-      skipVideo();
+    // Initialize jQuery UI volume slider
+    volume_slider();
 
-      // Auto-scroll queue to top after 10s of inactivity
-      queue_scroll_top();
-
-      // Initialize jQuery UI volume slider
-      volume_slider();
-
-      // Set up volume +/- buttons and mute toggle
-      volume_changer();
-    });
+    // Set up volume +/- buttons and mute toggle
+    volume_changer();
   });
 });
 

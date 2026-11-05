@@ -16,10 +16,12 @@ permissions = [
   "allow-detect-admin-drive",
   "allow-scan-admin-usb",
   "allow-copy-admin-songs",
+  "allow-cancel-admin-copy",
+  "allow-admin-grant-usb-scope",
   "allow-get-all-categories",
   "allow-get-songs-by-category",
   "allow-get-shuffle-paths",
-  "allow-debug-paths",
+  "allow-refresh-song-cache",
   "allow-speed-test",
   "allow-get-media-server-port",
   "allow-get-app-env",
@@ -61,9 +63,19 @@ description = "Enables the get_shuffle_paths command."
 commands.allow = ["get_shuffle_paths"]
 
 [[permission]]
-identifier = "allow-debug-paths"
-description = "Enables the debug_paths command."
-commands.allow = ["debug_paths"]
+identifier = "allow-cancel-admin-copy"
+description = "Enables the cancel_admin_copy command."
+commands.allow = ["cancel_admin_copy"]
+
+[[permission]]
+identifier = "allow-admin-grant-usb-scope"
+description = "Enables the admin_grant_usb_scope command."
+commands.allow = ["admin_grant_usb_scope"]
+
+[[permission]]
+identifier = "allow-refresh-song-cache"
+description = "Enables the refresh_song_cache command."
+commands.allow = ["refresh_song_cache"]
 
 [[permission]]
 identifier = "allow-speed-test"

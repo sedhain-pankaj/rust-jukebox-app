@@ -144,26 +144,26 @@ pub struct Category {
 // In Rust, we combine all three into one data structure.
 // Each tuple is: (key, label, directory_path)
 
-/// Returns the list of all music categories with their keys, labels, and paths.
+/// All music categories as (key, label, directory path) — a compile-time
+/// constant. Was a Vec-returning function that allocated on every call
+/// (and every IPC command called it); now zero runtime allocation.
+/// 'static strings are baked into the binary at compile time.
 ///
-/// This is a function (not a constant) because Rust constants can't contain
-/// String types. The compiler will optimize this — it's essentially free.
-pub fn get_category_definitions() -> Vec<(&'static str, &'static str, &'static str)> {
-    // 'static means these strings live for the entire program lifetime.
-    // They're baked into the binary at compile time (like PHP's define()).
-    vec![
-        ("5060",            "50's + 60's",      "music/Fifty Sixty/"),
-        ("70",              "70's",             "music/Seventy/"),
-        ("80",              "80's",             "music/Eighty/"),
-        ("90",              "90's",             "music/Ninety/"),
-        ("2000",            "2000's",           "music/2000/"),
-        ("LatestHits",      "Latest Hits",      "music/Latest Hits/"),
-        ("Country",         "Country",          "music/Country/"),
-        ("Karaoke",         "Karaoke",          "music/Karaoke/"),
-        ("SpecialOccasion", "Special Occasion", "music/Special Occasion/"),
-        ("ChristmasSong",   "Christmas Song",   "music/Christmas Song/"),
-    ]
-}
+/// This is the single source of truth for the category list — the HTML
+/// category buttons (ui/index.html) and the JS shuffle maps are hardcoded
+/// to match it.
+pub const CATS: [(&str, &str, &str); 10] = [
+    ("5060",            "50's + 60's",      "music/Fifty Sixty/"),
+    ("70",              "70's",             "music/Seventy/"),
+    ("80",              "80's",             "music/Eighty/"),
+    ("90",              "90's",             "music/Ninety/"),
+    ("2000",            "2000's",           "music/2000/"),
+    ("LatestHits",      "Latest Hits",      "music/Latest Hits/"),
+    ("Country",         "Country",          "music/Country/"),
+    ("Karaoke",         "Karaoke",          "music/Karaoke/"),
+    ("SpecialOccasion", "Special Occasion", "music/Special Occasion/"),
+    ("ChristmasSong",   "Christmas Song",   "music/Christmas Song/"),
+];
 
 // -----------------------------------------------------------------------------
 // CORE FUNCTIONS — the actual logic
@@ -180,7 +180,7 @@ pub fn get_category_definitions() -> Vec<(&'static str, &'static str, &'static s
 /// # Returns
 /// * `true` if the file has a recognized video extension
 /// * `false` otherwise
-fn is_video_file(filename: &str) -> bool {
+pub fn is_video_file(filename: &str) -> bool {
     // Path::new() creates a Path object from a string.
     // .extension() returns the file extension (or None if there isn't one).
     // .and_then() is like: if extension exists, do this; otherwise return None.
@@ -191,11 +191,6 @@ fn is_video_file(filename: &str) -> bool {
         .is_some_and(|ext| {                  // Check if it's in our list
             VIDEO_EXTENSIONS.iter().any(|&valid| valid.eq_ignore_ascii_case(ext))
         })
-}
-
-/// Public wrapper for video filename detection (used by admin USB scan).
-pub fn is_video_file_name(filename: &str) -> bool {
-    is_video_file(filename)
 }
 
 /// Scans a directory and returns all video files as Song structs.
@@ -320,7 +315,10 @@ pub fn scan_directory(base_path: &Path, dir: &str) -> Vec<Song> {
     // Sort songs alphabetically by name (case-insensitive).
     // PHP's scandir() returns files in directory order, but explicit
     // sorting is cleaner and more predictable.
-    songs.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    // sort_by_key: one lowercase allocation per element (not two per
+    // comparison). cmp_ignore_ascii_case would be zero-alloc but changes
+    // ordering for non-ASCII titles (it doesn't lowercase accented chars).
+    songs.sort_by_key(|s| s.name.to_lowercase());
 
     songs
 }
@@ -337,59 +335,19 @@ pub fn scan_directory(base_path: &Path, dir: &str) -> Vec<Song> {
 /// # Returns
 /// * `Vec<Category>` - All categories with their songs
 pub fn scan_all_categories(base_path: &Path) -> Vec<Category> {
-    get_category_definitions()
-        .into_iter()
+    CATS
+        .iter()
         .map(|(key, label, dir)| {
             let songs = scan_directory(base_path, dir);
             Category {
-                key: key.to_string(),
-                label: label.to_string(),
-                dir: dir.to_string(),
+                key: (*key).to_string(),
+                label: (*label).to_string(),
+                dir: (*dir).to_string(),
                 songs,
             }
         })
         .collect()
 }
 
-/// Returns just the file paths for a specific category (for shuffle).
-///
-/// This replaces PHP's shuffle_img_video_loader() which returned
-/// file paths separated by <br>.
-///
-/// The actual shuffling is done on the frontend (in shuffle.js),
-/// same as before. We just provide the raw file list.
-///
-/// # Arguments
-/// * `base_path` - The root path of the application
-/// * `category_key` - The category key (e.g., "80", "LatestHits")
-///
-/// # Returns
-/// * `Vec<String>` - List of file paths (e.g., ["music/Eighty/song.mp4", ...])
-pub fn get_shuffle_paths(base_path: &Path, category_key: &str) -> Vec<String> {
-    // Find the category definition matching the key
-    let definitions = get_category_definitions();
-
-    // .iter() creates an iterator over the definitions
-    // .find() returns the first one where the condition is true
-    // It returns Option — Some((key, label, dir)) or None
-    let category = definitions.iter().find(|(key, _, _)| *key == category_key);
-
-    match category {
-        Some((_, _, dir)) => {
-            // Scan the directory and extract ABSOLUTE file paths.
-            // The frontend uses convertFileSrc() on these to create
-            // Tauri asset URLs that the webview can play.
-            scan_directory(base_path, dir)
-                .into_iter()
-                .map(|song| song.path_abs)
-                .collect()
-        }
-        None => {
-            term_log(&format!(
-            "Warning: Unknown category key '{}'",
-            category_key
-        ));
-            Vec::new()
-        }
-    }
-}
+// (Shuffle paths are served from the song cache in main.rs — the
+// frontend's shuffle.js still does the Fisher-Yates shuffle itself.)

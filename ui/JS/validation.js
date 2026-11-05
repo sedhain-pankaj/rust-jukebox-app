@@ -133,3 +133,58 @@ window.ensureMusicStructure = function () {
 
   return window.__jukeboxStartup.validationPromise;
 };
+
+// ---------------------------------------------------------------------------
+// startupGate() — the single shared startup gate (backlog #9).
+//
+// Previously this exact sequence (admin check → media server port → music
+// structure validation) was copy-pasted in index.js and songs.js. It is
+// memoized: both callers share one promise chain.
+//
+// Resolves with the validation result when the app may proceed, or null
+// when it must not (admin mode owns the UI, validation failed, or a gate
+// dependency failed). mediaBaseReady() is part of the gate, so callers can
+// build media URLs immediately after.
+// ---------------------------------------------------------------------------
+window.startupGate = (function () {
+  var gatePromise = null;
+
+  return function () {
+    if (!gatePromise) {
+      var adminReady = window.__adminModeReady
+        ? window.__adminModeReady()
+        : Promise.resolve({ active: false });
+
+      gatePromise = adminReady
+        .then(function () {
+          if (window.__adminMode && window.__adminMode.active) {
+            return null; // admin mode owns the UI
+          }
+
+          // Guard: the (fallback) asset page can be cut off before its
+          // deferred scripts finish, so validation.js may not have run
+          // there. Skip the gate in that case — it runs on the real page.
+          var validationPromise;
+          if (typeof window.ensureMusicStructure === "function") {
+            validationPromise = window.ensureMusicStructure();
+          } else {
+            console.warn(
+              "ensureMusicStructure unavailable — skipping startup validation"
+            );
+            validationPromise = Promise.resolve({ valid: true });
+          }
+
+          return Promise.all([mediaBaseReady(), validationPromise]).then(
+            function (results) {
+              return results[1] && results[1].valid ? results[1] : null;
+            }
+          );
+        })
+        .catch(function (error) {
+          console.error("startup gate failed:", error);
+          return null;
+        });
+    }
+    return gatePromise;
+  };
+})();

@@ -103,10 +103,8 @@ const handleSearchResultClick = function () {
   var yt_dir =
     "https://www.youtube.com/embed/" + $(this).find(".yt_video_id").text();
 
-  if (
-    (typeof queue_lookup !== "undefined" && queue_lookup.has(yt_dir)) ||
-    queue_array.includes(yt_dir)
-  ) {
+  // The Set check subsumes the array (queue_lookup mirrors queue_array).
+  if (typeof queue_lookup !== "undefined" && queue_lookup.has(yt_dir)) {
     var position = queue_array.indexOf(yt_dir) + 1;
     jquery_modal({
       message:
@@ -146,17 +144,8 @@ function internet_speed() {
   window.__TAURI__.core
     .invoke("speed_test")
     .then(function (result) {
-      var quality;
-      var speed = parseFloat(result.speed_mbps);
-      if (speed >= 5) {
-        quality = icon + "verified</i><br>" + result.quality;
-      } else if (speed >= 2) {
-        quality = icon + "verified</i><br>" + result.quality;
-      } else if (speed >= 0.5) {
-        quality = icon + "warning</i><br>" + result.quality;
-      } else {
-        quality = icon + "error</i><br>" + result.quality;
-      }
+      // icon + quality come from Rust — one set of thresholds (backlog #9).
+      var quality = icon + result.icon + "</i><br>" + result.quality;
       $("#speed_result").html(quality + "<br>" + result.speed_mbps + " Mbps");
     })
     .catch(function (err) {

@@ -93,16 +93,14 @@ pub fn start(music_dir: &Path, ports: &[u16]) -> std::io::Result<u16> {
                 Ok(listener) => {
                     // Allowed roots: the music dir itself (junction path)
                     // and its canonical form (the real location the
-                    // junction points to). canonicalize() both so
+                    // junction points to). canonicalize() ONCE so
                     // starts_with() compares like-for-like.
-                    let mut roots = vec![music_dir.to_path_buf()];
-                    if let Ok(canon) = std::fs::canonicalize(music_dir) {
-                        roots.push(canon);
+                    let canonical = std::fs::canonicalize(music_dir)
+                        .unwrap_or_else(|_| music_dir.to_path_buf());
+                    let mut roots = vec![music_dir.to_path_buf(), canonical];
+                    if roots[0] == roots[1] {
+                        roots.pop();
                     }
-                    let roots: Vec<PathBuf> = roots
-                        .iter()
-                        .map(|r| std::fs::canonicalize(r).unwrap_or_else(|_| r.clone()))
-                        .collect();
 
                     // Return the ACTUALLY bound port (matters when a
                     // candidate is 0 = "let the OS pick"; for real

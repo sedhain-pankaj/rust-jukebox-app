@@ -69,6 +69,9 @@
 // After this line, we can use songs::Song, songs::Category, etc.
 mod songs;
 
+// In-process song library cache (primed in .setup(), see song_cache.rs).
+mod song_cache;
+
 // The local HTTP media server (see media_server.rs for why it exists:
 // the <video> element on Linux can't play asset:// URLs).
 mod media_server;
@@ -82,6 +85,7 @@ use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU16, Ordering};
+use std::sync::OnceLock;
 
 // The port the media server bound to (set in .setup(), read by the
 // get_media_server_port IPC command the frontend uses to build its URLs).
@@ -94,10 +98,6 @@ static MEDIA_PORT_USED: AtomicU16 = AtomicU16::new(0);
 // EVERY log line (except the very first line of the process), so entries
 // never run together in the terminal — no matter how fast they arrive.
 static TERM_LOG_STARTED: AtomicBool = AtomicBool::new(false);
-
-// get_music_base_path() is called by every IPC command; "Found music/"
-// is logged only on the first call.
-static MUSIC_BASE_LOGGED: AtomicBool = AtomicBool::new(false);
 
 pub(crate) fn term_log(message: &str) {
     // Exactly one caller wins the "first line" race (no leading gap);
@@ -118,6 +118,8 @@ use tauri::Manager;
 // The Listener trait gives us .listen() so we can forward JS console/mejs
 // errors into THIS terminal (the one running `cargo tauri dev`).
 use tauri::Listener;
+// The Emitter trait gives us .emit() (per-file admin copy progress events).
+use tauri::Emitter;
 #[derive(serde::Serialize)]
 struct MusicStructureValidation {
     valid: bool,
@@ -217,9 +219,11 @@ struct AdminCopyResult {
 ///   const categories = await window.__TAURI__.core.invoke("get_all_categories");
 ///   // categories = [{ key: "5060", label: "50's + 60's", songs: [...] }, ...]
 #[tauri::command]
-fn get_all_categories(app_handle: tauri::AppHandle) -> Vec<Category> {
-    let base_path = get_music_base_path(&app_handle);
-    let categories = songs::scan_all_categories(&base_path);
+fn get_all_categories() -> Vec<Category> {
+    // Served from the pre-scan cache (primed in .setup()); the 10 directory
+    // mtime/size checks below are cheap metadata calls, no directory reads.
+    let base_path = get_music_base_path();
+    let categories = song_cache::categories(&base_path);
 
     // Log how many songs were found (visible in debug console)
     let total_songs: usize = categories.iter().map(|c| c.songs.len()).sum();
@@ -244,85 +248,15 @@ fn get_all_categories(app_handle: tauri::AppHandle) -> Vec<Category> {
     categories
 }
 
-/// Debug command to help diagnose path issues from the frontend.
-/// Call from browser console: await invoke("debug_paths")
 #[tauri::command]
-fn debug_paths(app_handle: tauri::AppHandle) -> String {
-    let base_path = get_music_base_path(&app_handle);
-    let music_path = base_path.join("music");
-    let music_exists = music_path.exists();
-    let music_is_dir = music_path.is_dir();
-
-    let mut info = format!(
-        "Base path: {:?}\nMusic path: {:?}\nMusic exists: {}\nMusic is dir: {}\n",
-        base_path, music_path, music_exists, music_is_dir
-    );
-
-    // List contents of music/ if it exists
-    if music_exists && music_is_dir {
-        if let Ok(entries) = std::fs::read_dir(&music_path) {
-            info.push_str("\nMusic directory contents:\n");
-            for entry in entries.flatten() {
-                let name = entry.file_name().to_string_lossy().to_string();
-                let is_dir = entry.file_type().map(|t| t.is_dir()).unwrap_or(false);
-                info.push_str(&format!(
-                    "  {} {}\n",
-                    if is_dir { "[DIR]" } else { "[FILE]" },
-                    name
-                ));
-            }
-        }
-    }
-
-    // Also check exe path and cwd
-    if let Ok(exe) = std::env::current_exe() {
-        info.push_str(&format!("\nExe path: {:?}\n", exe));
-    }
-    if let Ok(cwd) = std::env::current_dir() {
-        info.push_str(&format!("CWD: {:?}\n", cwd));
-    }
-
-    // Test each category directory individually
-    let defs = songs::get_category_definitions();
-    info.push_str("\n=== Category Directory Test ===\n");
-    for (key, label, dir) in &defs {
-        let full = base_path.join(dir);
-        let full_str = full.to_string_lossy().to_string();
-        let exists = full.exists();
-        let is_dir = full.is_dir();
-        let read_result = std::fs::read_dir(&full);
-        let file_count = match &read_result {
-            Ok(_) => {
-                // Re-read to count
-                std::fs::read_dir(&full)
-                    .map(|entries| entries.filter_map(|e| e.ok()).count())
-                    .unwrap_or(0)
-            }
-            Err(_) => 0,
-        };
-        let read_ok = read_result.is_ok();
-        let err_msg = match read_result {
-            Err(e) => format!(" ERROR: {:?}", e),
-            Ok(_) => String::new(),
-        };
-        info.push_str(&format!(
-            "  {} ({}) => path={:?} exists={} is_dir={} read_dir={} files={}{}\n",
-            key, label, full_str, exists, is_dir, read_ok, file_count, err_msg
-        ));
-    }
-
-    info
-}
-
-#[tauri::command]
-fn validate_music_structure(app_handle: tauri::AppHandle) -> MusicStructureValidation {
-    let base_path = get_music_base_path(&app_handle);
+fn validate_music_structure() -> MusicStructureValidation {
+    let base_path = get_music_base_path();
     let music_path = base_path.join("music");
     let mut errors: Vec<String> = Vec::new();
     let mut warnings: Vec<String> = Vec::new();
 
-    let expected_folders: Vec<String> = songs::get_category_definitions()
-        .into_iter()
+    let expected_folders: Vec<String> = songs::CATS
+        .iter()
         .filter_map(|(_, _, dir)| {
             dir.trim_matches('/')
                 .split('/')
@@ -400,9 +334,17 @@ fn validate_music_structure(app_handle: tauri::AppHandle) -> MusicStructureValid
     }
 }
 
+/// Marker file (on the USB root) written by copy_admin_songs after a
+/// successful transfer: one "CategoryFolder/File.ext" line per copied video.
+/// Without it, "Done (Restart Jukebox)" re-runs detection, finds admin.key
+/// again (the USB is still connected) and re-enters admin mode on every
+/// restart until the USB is unplugged. Deleting the file re-arms the flow.
+const TRANSFER_MARKER: &str = "jukebox-transfer.done";
+
 #[tauri::command]
 fn detect_admin_drive() -> AdminDriveDetection {
     let reason = String::from("admin.key not found on any drive.");
+    let local_music = get_music_base_path().join("music");
 
     for letter in 'D'..='Z' {
         let root = PathBuf::from(format!("{}:\\", letter));
@@ -411,6 +353,25 @@ fn detect_admin_drive() -> AdminDriveDetection {
         }
         let key_path = root.join("admin.key");
         if key_path.exists() {
+            // Previous transfer from this drive completed and every listed
+            // file is present locally → skip admin mode.
+            let completed_transfer = read_transfer_marker(&root).and_then(|copied| {
+                copied
+                    .iter()
+                    .all(|rel| local_music.join(rel).exists())
+                    .then_some(copied.len())
+            });
+            if let Some(count) = completed_transfer {
+                return AdminDriveDetection {
+                    found: false,
+                    root_path: String::new(),
+                    music_path: String::new(),
+                    reason: format!(
+                        "Transfer from {} already complete ({count} songs). Delete {TRANSFER_MARKER} to re-run.",
+                        root.display()
+                    ),
+                };
+            }
             let music_path = root.join("music");
             return AdminDriveDetection {
                 found: true,
@@ -429,9 +390,39 @@ fn detect_admin_drive() -> AdminDriveDetection {
     }
 }
 
+/// Parse the transfer marker into relative "CategoryFolder/File.ext" paths.
+/// Returns None if the file is missing or empty.
+fn read_transfer_marker(usb_root: &Path) -> Option<Vec<String>> {
+    let raw = fs::read_to_string(usb_root.join(TRANSFER_MARKER)).ok()?;
+    let paths: Vec<String> = raw
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .map(str::to_string)
+        .collect();
+    (!paths.is_empty()).then_some(paths)
+}
+
+/// Async wrapper: the USB scan (10 read_dir passes + 2 stat calls per video
+/// over a slow USB stick) runs on a blocking thread so the UI event loop
+/// stays responsive while it runs (sync Tauri commands block the main
+/// thread — the admin screen would freeze for the whole scan).
 #[tauri::command]
-fn scan_admin_usb(music_path: String, app_handle: tauri::AppHandle) -> AdminUsbScanResult {
-    let usb_music = PathBuf::from(&music_path);
+async fn scan_admin_usb(music_path: String) -> AdminUsbScanResult {
+    let base = get_music_base_path();
+    tauri::async_runtime::spawn_blocking(move || {
+        scan_admin_usb_impl(&PathBuf::from(&music_path), &base)
+    })
+    .await
+    .unwrap_or(AdminUsbScanResult {
+        valid_structure: false,
+        errors: vec!["USB scan task failed".into()],
+        per_folder_counts: Vec::new(),
+        songs_by_folder: Vec::new(),
+    })
+}
+
+fn scan_admin_usb_impl(usb_music: &Path, base: &Path) -> AdminUsbScanResult {
     let mut errors: Vec<String> = Vec::new();
 
     if !usb_music.exists() {
@@ -443,10 +434,8 @@ fn scan_admin_usb(music_path: String, app_handle: tauri::AppHandle) -> AdminUsbS
         ));
     }
 
-    let definitions = songs::get_category_definitions();
-
     if errors.is_empty() {
-        for (_, _, dir) in &definitions {
+        for (_, _, dir) in songs::CATS {
             let Some(folder_name) = folder_name_from_dir(dir) else {
                 continue;
             };
@@ -493,9 +482,9 @@ fn scan_admin_usb(music_path: String, app_handle: tauri::AppHandle) -> AdminUsbS
         };
     }
 
-    let local_music = get_music_base_path(&app_handle).join("music");
+    let local_music = base.join("music");
 
-    for (_, label, dir) in definitions {
+    for (_, label, dir) in songs::CATS {
         let folder_name = folder_name_from_dir(dir).unwrap_or_else(|| label.to_string());
         let usb_folder = usb_music.join(&folder_name);
         let local_folder = local_music.join(&folder_name);
@@ -525,7 +514,7 @@ fn scan_admin_usb(music_path: String, app_handle: tauri::AppHandle) -> AdminUsbS
                 continue;
             }
             let filename = entry.file_name().to_string_lossy().to_string();
-            if !songs::is_video_file_name(&filename) {
+            if !songs::is_video_file(&filename) {
                 continue;
             }
             let name = Path::new(&filename)
@@ -579,7 +568,9 @@ fn scan_admin_usb(music_path: String, app_handle: tauri::AppHandle) -> AdminUsbS
             });
         }
 
-        songs.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+        // sort_by_key: one lowercase alloc per element (not two per
+        // comparison) — see the same fix in songs.rs scan_directory.
+        songs.sort_by_key(|s| s.name.to_lowercase());
 
         per_folder_counts.push(AdminFolderSummary {
             folder: folder_name.clone(),
@@ -603,20 +594,72 @@ fn scan_admin_usb(music_path: String, app_handle: tauri::AppHandle) -> AdminUsbS
     }
 }
 
+/// Set by the cancel_admin_copy command; checked between files.
+static COPY_CANCELLED: AtomicBool = AtomicBool::new(false);
+
+/// Per-file progress payload for the "admin-copy-progress" event.
+#[derive(serde::Serialize, Clone)]
+struct AdminCopyProgress {
+    done: usize,
+    total: usize,
+    filename: String,
+}
+
+/// Async wrapper: copying gigabytes with blocking fs::copy used to freeze the
+/// UI event loop for the entire transfer (sync Tauri commands run on the
+/// main thread) — the progress modal couldn't even animate. Now the copy
+/// runs on a blocking thread and emits per-file progress events.
 #[tauri::command]
-fn copy_admin_songs(
+async fn copy_admin_songs(
     music_path: String,
     selections: Vec<AdminCopySelection>,
     app_handle: tauri::AppHandle,
 ) -> AdminCopyResult {
-    let usb_music = PathBuf::from(&music_path);
-    let local_music = get_music_base_path(&app_handle).join("music");
+    let base = get_music_base_path();
+    COPY_CANCELLED.store(false, Ordering::SeqCst);
+    tauri::async_runtime::spawn_blocking(move || {
+        copy_admin_songs_impl(&music_path, &base, &selections, &app_handle)
+    })
+    .await
+    .unwrap_or(AdminCopyResult {
+        copied: 0,
+        skipped: 0,
+        errors: vec!["Copy task failed".into()],
+    })
+}
+
+fn copy_admin_songs_impl(
+    music_path: &str,
+    base: &Path,
+    selections: &[AdminCopySelection],
+    app_handle: &tauri::AppHandle,
+) -> AdminCopyResult {
+    let usb_music = PathBuf::from(music_path);
+    let local_music = base.join("music");
 
     let mut copied: usize = 0;
     let mut skipped: usize = 0;
     let mut errors: Vec<String> = Vec::new();
+    let mut copied_rels: Vec<String> = Vec::new();
+    let total = selections.len();
 
-    for selection in selections {
+    for (i, selection) in selections.iter().enumerate() {
+        if COPY_CANCELLED.load(Ordering::SeqCst) {
+            errors.push(format!(
+                "Cancelled by user after {i} of {total} songs"
+            ));
+            break;
+        }
+        // Per-file progress for the admin modal (never fatal if it fails).
+        let _ = app_handle.emit(
+            "admin-copy-progress",
+            AdminCopyProgress {
+                done: i,
+                total,
+                filename: selection.filename.clone(),
+            },
+        );
+
         let src_video = usb_music.join(&selection.folder).join(&selection.filename);
         let dest_video = local_music.join(&selection.folder).join(&selection.filename);
 
@@ -632,6 +675,10 @@ fn copy_admin_songs(
         match fs::copy(&src_video, &dest_video) {
             Ok(_) => {
                 copied += 1;
+                copied_rels.push(format!(
+                    "{}/{}",
+                    selection.folder, selection.filename
+                ));
             }
             Err(e) => {
                 errors.push(format!(
@@ -673,10 +720,69 @@ fn copy_admin_songs(
         }
     }
 
+    // Write (or extend) the done-marker on the USB root so the next
+    // startup skips admin mode for an already-completed transfer. Only
+    // actually-copied files are recorded — a failed copy must NOT mark the
+    // transfer done, or the missing song would never be offered again.
+    if let Some(usb_root) =
+        usb_music.parent().filter(|_| !copied_rels.is_empty())
+    {
+        let existing_raw = fs::read_to_string(usb_root.join(TRANSFER_MARKER))
+            .unwrap_or_default();
+        let existing = existing_raw
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty());
+        let mut lines: Vec<String> = existing.map(str::to_string).collect();
+        for rel in &copied_rels {
+            if !lines.contains(rel) {
+                lines.push(rel.clone());
+            }
+        }
+        let _ = fs::write(
+            usb_root.join(TRANSFER_MARKER),
+            lines.join("\n") + "\n",
+        );
+    }
+
+    // The library changed — refresh the pre-scan cache so the new songs
+    // are visible without a full app restart.
+    song_cache::refresh(base);
+
     AdminCopyResult {
         copied,
         skipped,
         errors,
+    }
+}
+
+/// Cancels a running admin copy (checked between files).
+#[tauri::command]
+fn cancel_admin_copy() {
+    COPY_CANCELLED.store(true, Ordering::SeqCst);
+}
+
+/// Re-scans the song library from disk (public refresh entry point).
+#[tauri::command]
+fn refresh_song_cache() -> Vec<Category> {
+    let base = get_music_base_path();
+    song_cache::refresh(&base)
+}
+
+/// Adds an admin USB music directory to the asset protocol scope at runtime,
+/// so the manual list can show the USB's img/ thumbnails via convertFileSrc.
+#[tauri::command]
+fn admin_grant_usb_scope(music_path: String, app_handle: tauri::AppHandle) {
+    let path = PathBuf::from(&music_path);
+    let scope = app_handle.asset_protocol_scope();
+    if let Err(e) = scope.allow_directory(&path, true) {
+        term_log(&format!(
+            "Warning: could not add USB music dir {:?} to asset scope: {e}",
+            path
+        ));
+    }
+    if let Ok(canonical) = fs::canonicalize(&path) {
+        let _ = scope.allow_directory(&canonical, true);
     }
 }
 /// Returns songs for a single category by key.
@@ -685,17 +791,14 @@ fn copy_admin_songs(
 ///   const songs = await window.__TAURI__.core.invoke("get_songs_by_category", { key: "80" });
 ///   // songs = [{ name: "Bohemian Rhapsody", path: "music/Eighty/...", ... }, ...]
 #[tauri::command]
-fn get_songs_by_category(key: String, app_handle: tauri::AppHandle) -> Vec<Song> {
-    let base_path = get_music_base_path(&app_handle);
+fn get_songs_by_category(key: String) -> Vec<Song> {
+    let base_path = get_music_base_path();
+    let categories = song_cache::categories(&base_path);
 
-    // Find the directory for this category key
-    let definitions = songs::get_category_definitions();
-    let category = definitions.iter().find(|(k, _, _)| *k == key.as_str());
-
-    match category {
-        Some((_, _, dir)) => songs::scan_directory(&base_path, dir),
+    match categories.into_iter().find(|c| c.key == key) {
+        Some(category) => category.songs,
         None => {
-            term_log(&format!("Unknown category key: {}", key));
+            term_log(&format!("Unknown category key: {key}"));
             Vec::new()
         }
     }
@@ -710,20 +813,34 @@ fn get_songs_by_category(key: String, app_handle: tauri::AppHandle) -> Vec<Song>
 ///   const paths = await window.__TAURI__.core.invoke("get_shuffle_paths", { key: "80" });
 ///   // paths = ["music/Eighty/song1.mp4", "music/Eighty/song2.mp4", ...]
 #[tauri::command]
-fn get_shuffle_paths(key: String, app_handle: tauri::AppHandle) -> Vec<String> {
-    let base_path = get_music_base_path(&app_handle);
-    songs::get_shuffle_paths(&base_path, &key)
+fn get_shuffle_paths(key: String) -> Vec<String> {
+    let base_path = get_music_base_path();
+    let categories = song_cache::categories(&base_path);
+
+    match categories.into_iter().find(|c| c.key == key) {
+        Some(category) => category.songs.into_iter().map(|s| s.path_abs).collect(),
+        None => {
+            term_log(&format!("Unknown category key: {key}"));
+            Vec::new()
+        }
+    }
 }
 
 /// Native internet speed test.
 /// Downloads a large file and measures throughput in Mbps.
 /// Runs in Rust (outside WebView) so no CSP restrictions apply.
 ///
-/// JavaScript usage:
-///   const result = await window.__TAURI__.core.invoke("speed_test");
-///   // result = { speed_mbps: "12.34", quality: "Excellent for YouTube" }
+/// Async wrapper: the blocking download used to run on the main thread —
+/// the whole UI froze for the entire transfer (seconds–minutes on a slow
+/// line). Now it runs on a blocking thread.
 #[tauri::command]
-fn speed_test() -> Result<serde_json::Value, String> {
+async fn speed_test() -> Result<serde_json::Value, String> {
+    tauri::async_runtime::spawn_blocking(speed_test_impl)
+        .await
+        .map_err(|e| format!("speed test task failed: {e}"))?
+}
+
+fn speed_test_impl() -> Result<serde_json::Value, String> {
     // Cloudflare's speed test endpoint — purpose-built for speed testing.
     // Downloads 10MB of data. No burden on open-source infrastructure.
     let url = "https://speed.cloudflare.com/__down?bytes=10000000";
@@ -736,19 +853,22 @@ fn speed_test() -> Result<serde_json::Value, String> {
     let bits = bytes.len() as f64 * 8.0;
     let speed_mbps = bits / duration / 1_048_576.0;
 
-    let quality = if speed_mbps >= 5.0 {
-        "Excellent for YouTube"
+    // quality + icon share one set of thresholds — the single source of
+    // truth (the JS used to re-derive the same breakpoints).
+    let (quality, icon) = if speed_mbps >= 5.0 {
+        ("Excellent for YouTube", "verified")
     } else if speed_mbps >= 2.0 {
-        "Good for YouTube"
+        ("Good for YouTube", "verified")
     } else if speed_mbps >= 0.5 {
-        "May buffer on YouTube"
+        ("May buffer on YouTube", "warning")
     } else {
-        "Too slow for YouTube"
+        ("Too slow for YouTube", "error")
     };
 
     Ok(serde_json::json!({
         "speed_mbps": format!("{:.2}", speed_mbps),
-        "quality": quality
+        "quality": quality,
+        "icon": icon
     }))
 }
 
@@ -778,7 +898,7 @@ fn collect_video_stems(dir: &Path) -> HashSet<String> {
             continue;
         }
         let filename = entry.file_name().to_string_lossy().to_string();
-        if !songs::is_video_file_name(&filename) {
+        if !songs::is_video_file(&filename) {
             continue;
         }
         let name = Path::new(&filename)
@@ -803,10 +923,20 @@ fn get_media_server_port() -> u16 {
 /// falling back to the current directory). config.js uses this to fetch
 /// secrets (YT_API_KEY, QUEUE_CLEAR_PASSWORD) that are no longer hardcoded
 /// in the tracked config.js.
+///
+/// Parsed once per process (OnceLock) — was a disk read + re-parse on every
+/// call. Changing the .env requires an app restart (acceptable: it is a
+/// startup config file).
+static APP_ENV: OnceLock<std::collections::BTreeMap<String, String>> = OnceLock::new();
+
 #[tauri::command]
-fn get_app_env(app_handle: tauri::AppHandle) -> std::collections::BTreeMap<String, String> {
+fn get_app_env() -> std::collections::BTreeMap<String, String> {
+    APP_ENV.get_or_init(load_app_env).clone()
+}
+
+fn load_app_env() -> std::collections::BTreeMap<String, String> {
     let candidates = vec![
-        get_music_base_path(&app_handle).join(".env"),
+        get_music_base_path().join(".env"),
         std::env::current_dir()
             .map(|cwd| cwd.join(".env"))
             .unwrap_or_default(),
@@ -874,14 +1004,26 @@ fn pick_localhost_port() -> u16 {
     1428
 }
 
-/// Determines the base path where the music/ folder lives.
+/// The base path where the music/ folder lives, detected ONCE per process.
 ///
 /// In development: the workspace root (Craigs-Music-Player/rust-jukebox-app/)
 /// In production: the directory containing rust-jukebox-app.exe
 ///
 /// This is important because all song paths are relative:
 ///   base_path/music/Eighty/song.mp4
-fn get_music_base_path(_app_handle: &tauri::AppHandle) -> PathBuf {
+///
+/// Memoized in a OnceLock: the answer never changes per process, and the
+/// detection (candidate walk + stat calls) used to run on EVERY IPC command
+/// — a real cost on slow hardware. This helper feeds the media server, the
+/// asset scope, env loading, and every category/admin command, so caching it
+/// fixes all of them at once.
+static MUSIC_BASE_PATH: OnceLock<PathBuf> = OnceLock::new();
+
+fn get_music_base_path() -> PathBuf {
+    MUSIC_BASE_PATH.get_or_init(detect_music_base_path).clone()
+}
+
+fn detect_music_base_path() -> PathBuf {
     let mut candidates: Vec<PathBuf> = Vec::new();
 
     if let Ok(exe_path) = std::env::current_exe() {
@@ -903,41 +1045,40 @@ fn get_music_base_path(_app_handle: &tauri::AppHandle) -> PathBuf {
         }
     }
 
-    // Write debug log to a file so we can see what's happening
-    // even when the console is hidden by the fullscreen window
-    let log_path = std::env::temp_dir().join("jukebox-debug.log");
-    let mut log = String::new();
-    log.push_str("=== Jukebox Path Debug ===\n");
-
     for candidate in &candidates {
         let music_check = candidate.join("music");
-        let exists = music_check.exists();
-        let is_dir = music_check.is_dir();
-        log.push_str(&format!(
-            "Checking: {:?}/music/ => exists={}, is_dir={}\n",
-            candidate, exists, is_dir
-        ));
-        if exists && is_dir {
-            log.push_str(&format!("FOUND music/ at: {:?}\n", candidate));
-            let _ = std::fs::write(&log_path, &log);
-            // This function is called on every IPC command — log the
-            // discovery only once per process.
-            if MUSIC_BASE_LOGGED
-                .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
-                .is_ok()
-            {
-                term_log(&format!(
-                    "[pid {}] Found music/ directory at: {:?}",
-                    std::process::id(),
-                    candidate
-                ));
-            }
+        if music_check.is_dir() {
+            term_log(&format!(
+                "[pid {}] Found music/ directory at: {:?}",
+                std::process::id(),
+                candidate
+            ));
             return candidate.clone();
         }
     }
 
-    log.push_str("ERROR: music/ not found anywhere!\n");
-    let _ = std::fs::write(&log_path, &log);
+    // Debug builds: write the search trail to a file so we can see what
+    // happened even when the console is hidden by the fullscreen window.
+    // Release builds: no per-call temp-file writes (was a disk write on
+    // every IPC call before the OnceLock memoization).
+    #[cfg(debug_assertions)]
+    {
+        let log_path = std::env::temp_dir().join("jukebox-debug.log");
+        let mut log = String::new();
+        log.push_str("=== Jukebox Path Debug ===\n");
+        for candidate in &candidates {
+            let music_check = candidate.join("music");
+            log.push_str(&format!(
+                "Checking: {:?}/music/ => exists={}, is_dir={}\n",
+                candidate,
+                music_check.exists(),
+                music_check.is_dir()
+            ));
+        }
+        log.push_str("ERROR: music/ not found anywhere!\n");
+        let _ = std::fs::write(&log_path, &log);
+    }
+
     term_log("ERROR: Could not find music/ directory!");
     std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
 }
@@ -987,8 +1128,8 @@ fn main() {
         // the scope at runtime, we tell Tauri "this path is allowed".
         // -----------------------------------------------------------------
         .setup(move |app| {
-            // Find the music directory using the same logic as IPC commands
-            let base_path = get_music_base_path(&app.handle());
+            // Find the music directory (memoized — IPC commands share this)
+            let base_path = get_music_base_path();
             let music_dir = base_path.join("music");
 
             // Get the asset protocol scope so we can add allowed directories
@@ -1025,6 +1166,23 @@ fn main() {
             }
 
             // -----------------------------------------------------------------
+            // Song cache — pre-scan the library BEFORE the JS is ready
+            // -----------------------------------------------------------------
+            // The scan (10 category directory reads) overlaps window/JS
+            // loading, so the first IPC call (get_all_categories, fired by
+            // the JS startup gate) returns instantly instead of re-reading
+            // the disk. Later calls hit mtime/size fingerprints and only
+            // re-scan a category whose directory actually changed.
+            let primed = song_cache::build(&base_path);
+            let total_songs: usize = primed.iter().map(|c| c.songs.len()).sum();
+            term_log(&format!(
+                "[pid {}] Song cache primed: {} categories, {} songs",
+                std::process::id(),
+                primed.len(),
+                total_songs
+            ));
+
+            // -----------------------------------------------------------------
             // Media server — HTTP fallback for <video> playback
             // -----------------------------------------------------------------
             // On Linux the webview's <video> element (GStreamer) can't load
@@ -1058,13 +1216,25 @@ fn main() {
             // (core:default + the app's "default" set) for that URL —
             // otherwise IPC (every #[tauri::command]) breaks once the page
             // loads over http.
+            // The window opens on about:blank (tauri.conf.json) so the
+            // embedded asset page is never parsed (backlog #4: it used to
+            // load the asset:// UI and then reload the whole page when this
+            // navigation happened). Point it at the localhost UI; if that
+            // fails, fall back to the embedded asset page.
             let localhost_url = format!("http://localhost:{localhost_port}");
             if let Some(window) = app.get_webview_window("main") {
-                if let Ok(url) = tauri::Url::parse(&localhost_url) {
-                    if let Err(e) = window.navigate(url) {
-                        term_log(&format!(
-                            "Warning: Failed to point main window at localhost: {e}"
-                        ));
+                // Unreachable for a locally-constructed URL; the let-else
+                // keeps the single-statement nesting out of clippy's way.
+                let Ok(url) = tauri::Url::parse(&localhost_url) else {
+                    term_log("Warning: could not parse the localhost URL — window stays on the blank page");
+                    return Ok(());
+                };
+                if let Err(e) = window.navigate(url) {
+                    term_log(&format!(
+                        "Warning: Failed to point main window at localhost: {e} — falling back to the asset page"
+                    ));
+                    if let Ok(fallback) = tauri::Url::parse("index.html") {
+                        let _ = window.navigate(fallback);
                     }
                 }
             }
@@ -1088,36 +1258,38 @@ fn main() {
                 std::process::id()
             ));
 
-            // Log the scope for debugging
-            let log_path = std::env::temp_dir().join("jukebox-debug.log");
-            let mut log = String::new();
-            if let Ok(existing) = std::fs::read_to_string(&log_path) {
-                log = existing;
-            }
-            log.push_str(&format!("\n=== Asset Scope Setup ===\n"));
-            log.push_str(&format!("Music dir (junction): {:?}\n", music_dir));
-            if let Ok(canonical) = std::fs::canonicalize(&music_dir) {
-                log.push_str(&format!("Music dir (canonical): {:?}\n", canonical));
-            }
-            log.push_str(&format!("Scope: {:?}\n", scope));
+            // Debug-build artifacts: scope dump + per-category dir test.
+            // Gated so release builds do no startup disk writes or extra
+            // canonicalize/read_dir calls on the target hardware.
+            #[cfg(debug_assertions)]
+            {
+                let log_path = std::env::temp_dir().join("jukebox-debug.log");
+                let mut log = String::new();
+                if let Ok(existing) = std::fs::read_to_string(&log_path) {
+                    log = existing;
+                }
+                log.push_str("\n=== Asset Scope Setup ===\n");
+                log.push_str(&format!("Music dir (junction): {music_dir:?}\n"));
+                if let Ok(canonical) = std::fs::canonicalize(&music_dir) {
+                    log.push_str(&format!("Music dir (canonical): {canonical:?}\n"));
+                }
+                log.push_str(&format!("Scope: {scope:?}\n"));
 
-            // Test each category directory from within the setup
-            let defs = songs::get_category_definitions();
-            log.push_str("\n=== Category Dir Test (from setup) ===\n");
-            for (key, label, dir) in &defs {
-                let full = base_path.join(dir);
-                let exists = full.exists();
-                let read_ok = std::fs::read_dir(&full).is_ok();
-                let canonical = std::fs::canonicalize(&full).ok();
-                log.push_str(&format!(
-                    "  {} ({}) => exists={} read_dir={} canonical={:?}\n",
-                    key, label, exists, read_ok, canonical
-                ));
-            }
+                log.push_str("\n=== Category Dir Test (from setup) ===\n");
+                for (key, label, dir) in songs::CATS {
+                    let full = base_path.join(dir);
+                    let exists = full.exists();
+                    let read_ok = std::fs::read_dir(&full).is_ok();
+                    let canonical = std::fs::canonicalize(&full).ok();
+                    log.push_str(&format!(
+                        "  {key} ({label}) => exists={exists} read_dir={read_ok} canonical={canonical:?}\n"
+                    ));
+                }
 
-            // Write to a SEPARATE file so get_all_categories doesn't overwrite it
-            let setup_log_path = std::env::temp_dir().join("jukebox-setup.log");
-            let _ = std::fs::write(&setup_log_path, &log);
+                // Write to a SEPARATE file so other debug logs don't overwrite it
+                let setup_log_path = std::env::temp_dir().join("jukebox-setup.log");
+                let _ = std::fs::write(&setup_log_path, &log);
+            }
 
             // -----------------------------------------------------------------
             // mejs-terminal-log — Forward JS console/mejs errors to THIS terminal
@@ -1150,10 +1322,12 @@ fn main() {
             detect_admin_drive,
             scan_admin_usb,
             copy_admin_songs,
+            cancel_admin_copy,
+            admin_grant_usb_scope,
             get_all_categories,
             get_songs_by_category,
             get_shuffle_paths,
-            debug_paths,
+            refresh_song_cache,
             speed_test,
             get_media_server_port,
             get_app_env,

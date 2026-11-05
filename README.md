@@ -108,6 +108,28 @@ music/
 
 Each category folder holds video files and an `img/` subfolder with matching `.jpg` thumbnails (e.g., `Song Name.mp4` → `img/Song Name.jpg`).
 
+Missing thumbnails can be generated with the standalone tool in `admin_tools/GenerateImage/` (see its README) — the app itself plays fine without a thumbnail, it just shows a grey box.
+
+---
+
+## Admin Mode (Transferring Songs from a USB Drive)
+
+Admin mode is a built-in song-transfer workflow — no separate tool needed:
+
+1. Put a `music/` folder with the same category structure as above (videos + `img/` thumbnails) on a USB drive.
+2. Place an empty `admin.key` file at the **root of the USB drive**.
+3. Plug the USB in and (re)start the jukebox. The app detects `admin.key` on any drive letter and opens the **Admin Mode** screen.
+4. Choose a mode:
+   - **AUTO** — after a 10 s countdown (cancelled by any input), every *new* song that has a thumbnail is copied automatically.
+   - **Manual** — pick individual songs (thumbnails are shown, so you can see what you're transferring).
+5. The copy runs with per-file progress and a **Cancel** button. New songs are skipped if the jukebox already has them.
+
+After a successful transfer the app writes a **`jukebox-transfer.done`** file to the USB root (one `CategoryFolder/File.ext` line per copied song). On the next startup the app sees the marker, verifies the files are present locally, and **skips admin mode** — so "Done (Restart Jukebox)" doesn't re-trigger the admin screen until the USB is unplugged. To re-run a transfer (e.g. more songs were added to the USB), delete `jukebox-transfer.done`.
+
+Notes:
+- Songs without a thumbnail are **ignored** in AUTO mode (they'd show a grey box in the player grid) and are flagged in the summary.
+- The admin flow works on Windows (drive-letter detection). On Linux `detect_admin_drive` simply finds nothing, so admin mode stays dormant.
+
 ---
 
 ## Building the App

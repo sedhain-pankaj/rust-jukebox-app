@@ -201,10 +201,30 @@
 }
 
 #admin-manual-header {
+  display: flex;
+  align-items: center;
+  gap: 1.5vw;
   font-size: clamp(1.2vw, 1.8vw, 2.4vw);
   font-weight: bold;
   color: #cde7d8;
   margin-bottom: 0.8vw;
+}
+
+/* "Show existing songs" toggle (new-only list by default). */
+.admin-toggle-btn {
+  cursor: pointer;
+  font-size: clamp(0.8vw, 1.1vw, 1.4vw);
+  font-weight: bold;
+  color: #033e30;
+  border: 0.12vw solid #315f53;
+  border-radius: 1vw;
+  background-color: rgba(168, 164, 164, 0.8);
+  padding: 0.4vw 1.2vw;
+}
+
+.admin-toggle-btn:hover {
+  background-color: #0f9171;
+  color: #fff;
 }
 
 #admin-manual-list-wrapper {
@@ -352,4 +372,36 @@
   font-weight: bold;
   color: #ff2d2d;
   line-height: 1;
+}
+
+/* New-only by default: hide already-present rows unless toggled. */
+.admin-row-existing {
+  display: none;
+}
+
+#admin-manual-list.admin-show-existing .admin-row-existing {
+  display: flex;
+}
+
+/* USB img/ thumbnail on a manual-list row. */
+.admin-thumb {
+  width: 3.4vw;
+  height: 2.4vw;
+  object-fit: cover;
+  border-radius: 0.3vw;
+  background: #333;
+  flex: 0 0 auto;
+}
+
+/* Copy progress line + cancel button in the transfer modal. */
+.admin-copy-progress-line {
+  font-size: clamp(0.8vw, 1.1vw, 1.4vw);
+  color: #9bd0b7;
+  margin-top: 0.8vw;
+  word-break: break-all;
+}
+
+.admin-copy-cancel-btn {
+  margin-top: 0.8vw;
+  background-color: rgba(253, 92, 99, 0.85);
 }

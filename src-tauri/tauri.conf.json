@@ -1,6 +1,6 @@
 {
   "productName": "Craig Williams JukeBox",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "identifier": "com.craigwilliams.jukebox",
   "build": {
     "frontendDist": "../ui"
@@ -19,7 +19,7 @@
         "decorations": false,
         "alwaysOnTop": true,
         "skipTaskbar": true,
-        "url": "index.html"
+        "url": "about:blank"
       }
     ],
     "security": {
