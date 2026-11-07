@@ -77,13 +77,43 @@ function showSongs(response, msg) {
   $("#showSongs").append(response);
 }
 
+// Resolve the Rust-pre-escaped display name for a media-server URL.
+// Backlog: move escaping out of the JS and into Rust — Song.name_escaped
+// is computed once per scan in scan_directory() and rides over IPC, so the
+// queue can inject it into the DOM directly (no JS escaping, no escaping
+// at all if the lookup hits).
+// mediaUrl() is MEDIA_SERVER_BASE + encodeURI(path_abs), so the reverse is
+// strip base + decodeURI (encodeURI leaves '/' alone, so path_abs round-trips).
+function songNameHtmlFromDir(dir) {
+  if (
+    typeof MEDIA_SERVER_BASE !== "string" ||
+    !MEDIA_SERVER_BASE ||
+    dir.indexOf(MEDIA_SERVER_BASE) !== 0
+  ) {
+    return null;
+  }
+  var abs = decodeURI(dir.substring(MEDIA_SERVER_BASE.length));
+  for (var key in cache) {
+    if (!Object.prototype.hasOwnProperty.call(cache, key)) continue;
+    var songs = cache[key].songs || [];
+    for (var i = 0; i < songs.length; i++) {
+      if (songs[i].path_abs === abs) {
+        return songs[i].name_escaped || null;
+      }
+    }
+  }
+  return null;
+}
+
 // Delegated click handler avoids inline onclick attributes on every table row.
+// The name comes pre-escaped from Rust (name_escaped); the fallback escapes
+// in JS only if the cache lookup misses (e.g. a row built before load).
 $(document).on("click", ".song_table", function () {
-  queue_array_create(
-    $(this).attr("data-filename"),
-    $(this).attr("data-img"),
-    $(this).attr("data-dir"),
-  );
+  var dir = $(this).attr("data-dir");
+  var name =
+    songNameHtmlFromDir(dir) ||
+    escapeHtmlText($(this).attr("data-filename") || "");
+  queue_array_create(name, $(this).attr("data-img"), dir);
 });
 
 function buildSongTableHtml(songs) {

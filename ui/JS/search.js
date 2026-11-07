@@ -95,12 +95,14 @@ function performSearch(searchId, excludeKey, searchMsg, searchKey) {
     }
   }
 
-  // Guard clause for no results
+  // Guard clause for no results (escapeHtmlText from songs.js: the typed
+  // query is user input and may contain & < >)
+  var escapedValue = escapeHtmlText(searchValue);
   if (resultIndex === 1) {
     $("#div_img_video_loader").html(
       "<h3>No results found for your search <br>" +
         "'" +
-        searchValue +
+        escapedValue +
         "'. <br><br>" +
         "Try YouTube Search.</h3>"
     );
@@ -111,7 +113,7 @@ function performSearch(searchId, excludeKey, searchMsg, searchKey) {
     "<h3> " +
       searchMsg +
       " Results for : ' " +
-      searchValue +
+      escapedValue +
       " '</h3><br>" +
       "<div id='" +
       searchId +

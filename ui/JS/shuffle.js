@@ -43,6 +43,22 @@ var shuffleArrays = {
   shuffle_ChristmasSong: [],
 };
 
+// Parallel to shuffleArrays: the display name, pre-escaped by Rust
+// (get_shuffle_paths now returns { path_abs, name_escaped }). Shuffled
+// in lockstep with the URL arrays so index i always pairs a URL with
+// its own name.
+var shuffleNames = {
+  shuffle_5060: [],
+  shuffle_70: [],
+  shuffle_80: [],
+  shuffle_90: [],
+  shuffle_2000: [],
+  shuffle_LatestHits: [],
+  shuffle_Country: [],
+  shuffle_SpecialOccasion: [],
+  shuffle_ChristmasSong: [],
+};
+
 // ---------------------------------------------------------------------------
 // SHUFFLE CATEGORY MESSAGES
 // ---------------------------------------------------------------------------
@@ -87,7 +103,8 @@ var shuffleToRustKey = {
 // ---------------------------------------------------------------------------
 // REPLACES the original shuffleAjaxCall().
 // Guard flag — prevents concurrent IPC shuffle calls.
-// Without this, autoShuffle()'s 1ms debounce can fire multiple times before
+// Without this, autoShuffle()'s triggers (startup, activity debounce, and the
+// scheduled idle-restart retries in index.js) can fire multiple times before
 // the first response sets video.src, causing the "overwrite" modal on refresh.
 var shuffleIpcLoading = false;
 
@@ -104,25 +121,40 @@ function shuffleIpcCall(key, index) {
   shuffleIpcLoading = true;
 
   _invoke("get_shuffle_paths", { key: rustKey })
-    .then(function (paths) {
-      // paths = array of absolute file paths from Rust
-      // Convert each to a media-server URL (the <video> element on Linux
-      // can't play asset:// URLs — see mediaUrl() in config.js)
-      shuffleArrays[key] = paths.map(function (p) {
-        return mediaUrl(p);
+    .then(function (songs) {
+      // songs = array of { path_abs, name_escaped } from Rust
+      // Convert each path to a media-server URL (the <video> element on
+      // Linux can't play asset:// URLs — see mediaUrl() in config.js)
+      shuffleArrays[key] = songs.map(function (s) {
+        return mediaUrl(s.path_abs);
+      });
+      // names follow the same order (pre-escaped in Rust — backlog:
+      // no more decodeURIComponent + extension-strip in the JS)
+      shuffleNames[key] = songs.map(function (s) {
+        return s.name_escaped;
       });
 
       // Fisher-Yates shuffle — randomize the array
-      // (same algorithm as the original)
+      // (same algorithm as the original). Names are shuffled in
+      // lockstep so every URL keeps its own display name.
       for (var i = shuffleArrays[key].length - 1; i > 0; i--) {
         var j = Math.floor(Math.random() * (i + 1));
-        var temp = shuffleArrays[key][i];
+
+        var tempUrl = shuffleArrays[key][i];
         shuffleArrays[key][i] = shuffleArrays[key][j];
-        shuffleArrays[key][j] = temp;
+        shuffleArrays[key][j] = tempUrl;
+
+        var tempName = shuffleNames[key][i];
+        shuffleNames[key][i] = shuffleNames[key][j];
+        shuffleNames[key][j] = tempName;
       }
 
       shuffleIpcLoading = false;
-      show_shuffle_msg(shuffleArrays[key], dir_msg_collection[index]);
+      show_shuffle_msg(
+        shuffleArrays[key],
+        shuffleNames[key],
+        dir_msg_collection[index],
+      );
     })
     .catch(function (error) {
       shuffleIpcLoading = false;
@@ -151,7 +183,8 @@ $(function () {
 // shuffler() — Play songs sequentially from the shuffled array
 // ---------------------------------------------------------------------------
 // Same logic as original. KEY CHANGE: proper mejs destroy before re-init.
-function shuffler(array, dir_msg) {
+// `names` is the parallel array of Rust-pre-escaped display names.
+function shuffler(array, names, dir_msg) {
   if (array.length == 0) {
     // Shuffle finished — reset player
     $("#video_title").text("Video Title");
@@ -168,9 +201,13 @@ function shuffler(array, dir_msg) {
       closeTime: 5000,
     });
 
-    // Trigger auto-shuffle immediately if the app is idle.
-    if (typeof triggerAutoShuffleIfIdle === "function") {
-      triggerAutoShuffleIfIdle();
+    // Schedule the auto-shuffle restart (NOT an inline triggerAutoShuffleIfIdle):
+    // mejs's teardown after resetPlayer() settles over a short window and an
+    // immediate check could still see the previous song's state, which is what
+    // made the second cycle wait for a mouse move / fake click. The scheduled
+    // retries in index.js need no user input.
+    if (typeof scheduleAutoShuffleRestart === "function") {
+      scheduleAutoShuffleRestart();
     }
     return;
   }
@@ -207,7 +244,7 @@ function shuffler(array, dir_msg) {
       play_Queue();
     } else {
       pendingShuffleRestarter = null;
-      shuffler(array, dir_msg);
+      shuffler(array, names, dir_msg);
     }
   }
 
@@ -215,26 +252,22 @@ function shuffler(array, dir_msg) {
   // Do NOT set video.src first — mejs's setSrc interceptor would consume it.
   mejs_media_Player(relooper_shuffle, array[0]);
 
-  // Set video title (extract filename from the asset URL path)
+  // Set video title from the Rust-pre-escaped name (the JS used to
+  // re-derive it from the URL: decodeURIComponent + split + strip
+  // extension — that work now happens once in Rust's scan_directory).
   var video_title = document.getElementById("video_title");
-  // Media URLs look like: http://127.0.0.1:<port>/.../Song.mp4
-  // We need to extract just "Song" (without extension)
-  var fullPath = decodeURIComponent(array[0]);
-  var fileName = fullPath.split("/").pop();
-  if (fileName.includes(".")) {
-    fileName = fileName.substring(0, fileName.lastIndexOf("."));
-  }
-  video_title.innerHTML = dir_msg + fileName;
+  video_title.textContent = dir_msg + (names[0] || "");
 
-  // Remove the played song from the array
+  // Remove the played song from the array (name follows its URL)
   array.shift();
+  names.shift();
 }
 
 // ---------------------------------------------------------------------------
 // show_shuffle_msg() — Guard clauses before starting shuffle
 // ---------------------------------------------------------------------------
 // Same logic as original. Checks for existing shuffle/queue conflicts.
-function show_shuffle_msg(array, dir_msg) {
+function show_shuffle_msg(array, names, dir_msg) {
   // If a previous shuffle is playing, ask to overwrite
   if (
     $("video").attr("src") != "" &&
@@ -252,7 +285,7 @@ function show_shuffle_msg(array, dir_msg) {
         // Reset player before overwriting shuffle
         pendingShuffleRestarter = null;
         resetPlayer();
-        shuffler(array, dir_msg);
+        shuffler(array, names, dir_msg);
       },
       closeTime: 30000,
     });
@@ -277,5 +310,5 @@ function show_shuffle_msg(array, dir_msg) {
   }
 
   // No conflicts — start the shuffle
-  shuffler(array, dir_msg);
+  shuffler(array, names, dir_msg);
 }

@@ -75,7 +75,8 @@ const VIDEO_EXTENSIONS: &[&str] = &[
 ///     "thumbnail": "music/Eighty/img/Bohemian Rhapsody.jpg",
 ///     "path": "music/Eighty/Bohemian Rhapsody.mp4",
 ///     "thumbnail_abs": "C:/Users/.../music/Eighty/img/Bohemian Rhapsody.jpg",
-///     "path_abs": "C:/Users/.../music/Eighty/Bohemian Rhapsody.mp4"
+///     "path_abs": "C:/Users/.../music/Eighty/Bohemian Rhapsody.mp4",
+///     "name_escaped": "Bohemian Rhapsody"
 /// }
 #[derive(Serialize, Clone, Debug)]
 pub struct Song {
@@ -102,6 +103,26 @@ pub struct Song {
     /// Absolute filesystem path to the video file (for Tauri's asset protocol)
     /// Same idea — needed for <video src="..."> to play local files.
     pub path_abs: String,
+
+    /// The display name, pre-escaped for HTML (backlog: move escaping out
+    /// of the JS and into Rust). The frontend injects this value directly
+    /// into the queue DOM without escaping it itself, so a filename
+    /// containing `<`, `>` or `&` can no longer break the markup.
+    /// Computed once per scan in scan_directory().
+    pub name_escaped: String,
+}
+
+/// Escapes a string for safe insertion into HTML (text or attribute
+/// context). Kept in Rust on purpose: the old JS built DOM by string
+/// concatenation, so every injection point needed its own escaping.
+/// Now Rust escapes once at scan/IPC time and the frontend injects.
+pub fn escape_html(input: &str) -> String {
+    input
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&#39;")
 }
 
 /// Represents a music category (e.g., "80's", "Country")
@@ -301,6 +322,7 @@ pub fn scan_directory(base_path: &Path, dir: &str) -> Vec<Song> {
             // Create and return the Song struct.
             // In Rust, the last expression without a semicolon is the return value.
             Song {
+                name_escaped: escape_html(&name),
                 name,
                 filename,
                 thumbnail,
@@ -351,3 +373,40 @@ pub fn scan_all_categories(base_path: &Path) -> Vec<Category> {
 
 // (Shuffle paths are served from the song cache in main.rs — the
 // frontend's shuffle.js still does the Fisher-Yates shuffle itself.)
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn escape_html_escapes_all_special_characters() {
+        assert_eq!(escape_html("a & b"), "a &amp; b");
+        assert_eq!(escape_html("<img>"), "&lt;img&gt;");
+        assert_eq!(escape_html("a\"b'c"), "a&quot;b&#39;c");
+        assert_eq!(escape_html("plain"), "plain");
+    }
+
+    #[test]
+    fn escape_html_runs_once_at_the_data_boundary() {
+        // '&' is replaced first, so pre-existing entities are not
+        // double-escaped by a second pass.
+        assert_eq!(escape_html("a &amp; b"), "a &amp;amp; b");
+    }
+
+    #[test]
+    fn scan_prefills_name_escaped() {
+        let root =
+            std::env::temp_dir().join(format!("jukebox-songesc-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let dir = root.join("music/Eighty");
+        fs::create_dir_all(dir.join("img")).unwrap();
+        fs::write(dir.join("A <B & C>.mp4"), b"x").unwrap();
+
+        let songs = scan_directory(&root, "music/Eighty/");
+        assert_eq!(songs.len(), 1);
+        assert_eq!(songs[0].name, "A <B & C>");
+        assert_eq!(songs[0].name_escaped, "A &lt;B &amp; C&gt;");
+
+        let _ = fs::remove_dir_all(&root);
+    }
+}
