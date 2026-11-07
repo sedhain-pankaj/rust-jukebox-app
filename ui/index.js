@@ -380,30 +380,56 @@ function searchCondition() {
 }
 
 // ---------------------------------------------------------------------------
-// autoShuffle() — Auto-start 80's shuffle when idle (same as original)
+// autoShuffle() — Auto-start 80's shuffle when idle
 // ---------------------------------------------------------------------------
+// The restart is SCHEDULED (not run inline) whenever the player goes idle:
+// mejs's teardown after resetPlayer() settles over a short window, and an
+// immediate guard check can still see the previous song's state on <video>,
+// which made the 80's shuffle fail to restart until user activity (the old
+// fake-click / mouse-movement workaround). A few delayed attempts let the
+// teardown settle; once a song is playing the guard fails harmlessly and
+// shuffleIpcLoading (shuffle.js) prevents a double IPC.
+//
+// NOTE: the old mousedown/click/touchstart/keydown activity listener that
+// re-triggered the shuffle on user input was the remnant of that fake-click
+// workaround — it is removed. The restart is now fully autonomous: startup
+// and every shuffle/queue end (shuffler and play_Queue in shuffle.js /
+// queue.js) call scheduleAutoShuffleRestart().
+var autoShuffleRestartTimer = null;
+
 function triggerAutoShuffleIfIdle() {
   if ($("video").attr("src") == "" && queue_array.length == 0) {
     // shuffleAjaxCall is aliased to shuffleIpcCall in shuffle.js
     shuffleAjaxCall("shuffle_80", 2);
+    return true;
   }
+  return false;
+}
+
+function scheduleAutoShuffleRestart() {
+  if (autoShuffleRestartTimer) {
+    clearTimeout(autoShuffleRestartTimer);
+  }
+  var attempt = 0;
+  (function tryRestart() {
+    if (triggerAutoShuffleIfIdle()) {
+      autoShuffleRestartTimer = null;
+      return;
+    }
+    attempt += 1;
+    if (attempt < 5) {
+      autoShuffleRestartTimer = setTimeout(tryRestart, 1000);
+    } else {
+      autoShuffleRestartTimer = null;
+    }
+  })();
 }
 
 function autoShuffle() {
-  var timeout = false;
-  function onActivity() {
-    clearTimeout(timeout);
-    timeout = setTimeout(function () {
-      triggerAutoShuffleIfIdle();
-    }, 250);
-  }
-
-  ["mousedown", "click", "touchstart", "keydown"].forEach(function (evt) {
-    document.addEventListener(evt, onActivity);
-  });
-
-  // Immediate startup check (no delay).
+  // Startup: try immediately (the app starts idle), and arm the delayed
+  // retries (up to ~5 s) in case the immediate check races startup.
   triggerAutoShuffleIfIdle();
+  scheduleAutoShuffleRestart();
 }
 
 // ---------------------------------------------------------------------------

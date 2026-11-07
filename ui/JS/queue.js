@@ -126,6 +126,13 @@ function play_Queue() {
         "No more songs left in the queue. Click on the thumbnail to add a song in the queue.",
       title: "Queue is Empty",
     });
+
+    // 80's auto-shuffle restarts when the queue ends with nothing to resume —
+    // scheduled (see scheduleAutoShuffleRestart in index.js), so it needs no
+    // user input (this path previously triggered nothing at all).
+    if (typeof scheduleAutoShuffleRestart === "function") {
+      scheduleAutoShuffleRestart();
+    }
     return;
   }
 
@@ -135,9 +142,12 @@ function play_Queue() {
   // and the URL gets lost before mejs_media_Player can read it.
   mejs_media_Player(play_Queue, queue_array[0]);
 
-  // Update video title from the first queue item's name
+  // Update video title from the first queue item's name.
+  // textContent (was innerHTML): the name comes from a queue item whose
+  // text was already parsed — re-injecting it as HTML was a needless
+  // second injection point; textContent is also what .text() below reads.
   var video_title = document.getElementById("video_title");
-  video_title.innerHTML = $("#right-block-down")
+  video_title.textContent = $("#right-block-down")
     .children(":first")
     .find(".queue_name")
     .text();
