@@ -24,43 +24,49 @@ function search_youtube() {
   });
 }
 
+// YouTube search now runs in Rust (the youtube_search IPC command):
+// reqwest percent-encodes the query (the old JS concatenation corrupted
+// queries containing & / # / +), the title arrives pre-escaped
+// (title_html — the same Rust-escapes-once policy as Song.name_escaped),
+// and the API key stays in Rust instead of entering the webview.
 const load_youtube = () => {
   const search_query = $("#search_query").val();
-  const search_query_url =
-    "https://www.googleapis.com/youtube/v3/search?part=snippet&q=" +
-    search_query +
-    "&type=video&videoEmbeddable=true&maxResults=10&key=" +
-    YT_API_Key;
+  if (!search_query) {
+    return;
+  }
 
-  $.ajax({
-    url: search_query_url,
-    method: "GET",
-    dataType: "json",
-    success: function (data) {
+  window.__TAURI__.core
+    .invoke("youtube_search", { query: search_query })
+    .then(function (result) {
       var resultsHtml = "";
-      data.items.forEach(function (item, i) {
+      result.items.forEach(function (item, i) {
+        // class instead of id="index" (that was a duplicate DOM id, one
+        // per row); the video id and pre-escaped title ride data-attrs
         resultsHtml +=
-          "<table class='search_result_table'>" +
-          "<th id='index'>" +
-          (i + 1) +
+          "<table class='search_result_table' data-video-id='" +
+          escapeHtmlAttr(item.video_id) +
+          "' data-title-escaped='" +
+          escapeHtmlAttr(item.title_html) +
+          "' data-thumb='" +
+          escapeHtmlAttr(item.thumbnail) +
+          "'>" +
+          "<th class='yt_index'>" +
+          i +
+          1 +
           ".</th>" +
           "<th class='search_result_img'>" +
           "<img src='" +
-          item.snippet.thumbnails.default.url +
-          "'>" +
-          "</th>" +
+          escapeHtmlAttr(item.thumbnail) +
+          "'></th>" +
           "<td class='yt_video_title'>" +
-          item.snippet.title +
-          "</td>" +
-          "<td class='yt_video_id' style='display:none;'>" +
-          item.id.videoId +
+          item.title_html +
           "</td>" +
           "</table>";
       });
 
       $("#div_img_video_loader").html(
         "<h3>Top 10 YouTube Results for : ' " +
-          search_query +
+          escapeHtmlText(search_query) +
           " '</h3><br>" +
           "<div id='search_results'>" +
           resultsHtml +
@@ -68,16 +74,15 @@ const load_youtube = () => {
       );
 
       loadYoutubeIframeAPI();
-    },
-    error: function (error) {
+    })
+    .catch(function (error) {
       console.log(error);
       $("#div_img_video_loader").html(
         "<h3>Error: " +
-          error.statusText +
+          escapeHtmlText(String(error)) +
           "<br><br>YouTube requires internet connection.</h3>",
       );
-    },
-  });
+    });
 };
 
 const loadYoutubeIframeAPI = () => {
@@ -100,8 +105,8 @@ const loadYoutubeIframeAPI = () => {
 };
 
 const handleSearchResultClick = function () {
-  var yt_dir =
-    "https://www.youtube.com/embed/" + $(this).find(".yt_video_id").text();
+  var video_id = $(this).attr("data-video-id");
+  var yt_dir = "https://www.youtube.com/embed/" + video_id;
 
   // The Set check subsumes the array (queue_lookup mirrors queue_array).
   if (typeof queue_lookup !== "undefined" && queue_lookup.has(yt_dir)) {
@@ -117,7 +122,7 @@ const handleSearchResultClick = function () {
   }
 
   var video = document.getElementById("video");
-  if (video.src.includes($(this).find(".yt_video_id").text())) {
+  if (video.src.includes(video_id)) {
     jquery_modal({
       message:
         "This song is being played currently. Once it ends completely, it can be re-added to queue.",
@@ -126,8 +131,11 @@ const handleSearchResultClick = function () {
     return;
   }
 
-  var yt_title = $(this).find(".yt_video_title").text();
-  var yt_img = $(this).find("img").attr("src");
+  // The title is Rust-pre-escaped (title_html): the attribute stores the
+  // escaped string, attr() returns it decoded once (the escaping stays
+  // intact), and the queue injects it as-is.
+  var yt_title = $(this).attr("data-title-escaped");
+  var yt_img = $(this).attr("data-thumb");
   queue_array_create(yt_title, yt_img, yt_dir);
 };
 

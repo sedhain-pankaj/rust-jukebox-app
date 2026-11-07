@@ -2,10 +2,13 @@
 // SECRETS — loaded from the app's .env file via IPC
 // ---------------------------------------------------------------------------
 // .env lives next to the music/ directory (see get_app_env in main.rs) and
-// is gitignored. These globals are filled in shortly after page load; the
-// consumers (load_youtube in youtube.js, delete.js) read them at call time,
-// well after the IPC round-trip completes.
-var YT_API_Key = "";
+// is gitignored. The global is filled in shortly after page load; the
+// consumer (delete.js) reads it at call time, well after the IPC
+// round-trip completes.
+//
+// The YT_API_KEY is deliberately NOT fetched here anymore: the YouTube
+// search itself moved to the Rust-side youtube_search IPC command, which
+// reads the key from .env directly (the key no longer enters the webview).
 var queue_clear_password = "";
 var _appEnv = null;
 
@@ -14,7 +17,6 @@ function getAppEnv() {
     _appEnv = window.__TAURI__.core
       .invoke("get_app_env")
       .then(function (env) {
-        YT_API_Key = env.YT_API_KEY || "";
         queue_clear_password = env.QUEUE_CLEAR_PASSWORD || "";
         return env;
       })

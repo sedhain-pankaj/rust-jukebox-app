@@ -23,6 +23,7 @@ permissions = [
   "allow-get-shuffle-paths",
   "allow-refresh-song-cache",
   "allow-speed-test",
+  "allow-youtube-search",
   "allow-get-media-server-port",
   "allow-get-app-env",
 ]
@@ -81,6 +82,11 @@ commands.allow = ["refresh_song_cache"]
 identifier = "allow-speed-test"
 description = "Enables the speed_test command."
 commands.allow = ["speed_test"]
+
+[[permission]]
+identifier = "allow-youtube-search"
+description = "Enables the youtube_search command."
+commands.allow = ["youtube_search"]
 
 [[permission]]
 identifier = "allow-get-media-server-port"
