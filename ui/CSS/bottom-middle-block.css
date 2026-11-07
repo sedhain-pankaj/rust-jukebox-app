@@ -75,8 +75,12 @@
   margin: 1.5% 1%;
   inset: 12% 0 0 0;
 }
+/* Element selector on purpose: there is one <video> in index.html and
+   resetPlayer() (index.js) recreates another on idle/error — both must
+   share this rule. `contain` preserves the aspect ratio (letterboxed);
+   `fill` (previous value) stretched and distorted every clip. */
 video {
   width: 100%;
   height: 100%;
-  object-fit: fill;
+  object-fit: contain;
 }
