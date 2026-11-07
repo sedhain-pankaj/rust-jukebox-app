@@ -223,17 +223,15 @@ function shuffler(array, names, dir_msg) {
     // Reset player before starting shuffle from queue context
     resetPlayer();
 
-    // Clear previous interval and show resume message
-    clearInterval(countdownInterval);
-    $("#dialog-confirm").dialog("close");
-    setTimeout(function () {
-      jquery_modal({
-        message:
-          "Queued songs have finished. The last played randomizer will resume.",
-        title: "Resuming Previous Randomizer",
-        closeTime: 5000,
-      });
-    }, 500);
+    // Swap the modal's content in place (no close -> gap -> open jitter);
+    // jquery_modal restarts the countdown, and if no modal is open this is
+    // just a normal open.
+    jquery_modal({
+      message:
+        "Queued songs have finished. The last played randomizer will resume.",
+      title: "Resuming Previous Randomizer",
+      closeTime: 5000,
+    });
   }
 
   // If queue has songs, play from queue first (queue gets priority)

@@ -18,10 +18,47 @@ const defaults = {
 let countdown;
 let countdownInterval;
 
+// Starts (or restarts) the auto-close countdown for the current modal.
+// closeTime 0 = stay open indefinitely.
+function startCountdown(settings) {
+  clearInterval(countdownInterval);
+  countdownInterval = null;
+  if (settings.closeTime > 0) {
+    countdown = settings.closeTime / 1000;
+    countdownInterval = setInterval(function () {
+      countdown--;
+      $(".ui-dialog-title").html(settings.title + " (" + countdown + "s)");
+      if (countdown <= 0) {
+        $("#dialog-confirm").dialog("close");
+      }
+    }, 1000);
+  }
+}
+
 function jquery_modal(options) {
-  // Merge default values with options and set countdown timer
+  // Merge default values with options
   const settings = $.extend({}, defaults, options);
-  countdown = settings.closeTime / 1000;
+
+  // Every modal reuses this single #dialog-confirm widget ("modal slot").
+  // When a modal is requested while the slot is still occupied — open, or
+  // with a blind-close animation queued/running — we swap its content in
+  // place instead of close-then-reopen, so the dialog never leaves the
+  // screen (no close-animation -> gap -> open-animation jitter, e.g. the
+  // clear-queue password box -> success box, admin confirm -> progress).
+  var $dlg = $("#dialog-confirm");
+  var inst = $dlg.dialog("instance");
+  var $widget = inst ? $dlg.dialog("widget") : $();
+  var swapping = !!(inst && $dlg.dialog("isOpen"));
+  if (inst && !swapping && ($widget.is(":animated") || $widget.queue("fx").length > 0)) {
+    // A blind hide is queued or running (e.g. a closeOnClick button fired
+    // one tick earlier, or closeAnyModal() ran before this call). Cancel it
+    // without letting it complete — the completed "close" event would clear
+    // the countdown of the modal starting here — then reuse the slot.
+    $widget.stop(true, false);
+    $widget.css({ overflow: "", height: "", width: "" });
+    if (!$widget.is(":visible")) $widget.show();
+    swapping = true;
+  }
 
   //find the bigger of window (w,h)
   var windowWidth = $(window).width();
@@ -42,26 +79,19 @@ function jquery_modal(options) {
     dialogClass: settings.dialogClass,
     resizable: false,
     draggable: false,
-    show: { effect: "blind", duration: 500 },
+    // In-place swap: the dialog never leaves the screen, so no open
+    // animation. Cold open: keep the blind reveal.
+    show: swapping ? false : { effect: "blind", duration: 500 },
     hide: { effect: "blind", duration: 400 },
     height: dialogHeight,
     width: dialogWidth,
     modal: true,
     open: function () {
-      //clear any previous timers; closeTime 0 = stay open indefinitely
-      clearInterval(countdownInterval);
-      if (settings.closeTime > 0) {
-        countdownInterval = setInterval(function () {
-          countdown--;
-          $(".ui-dialog-title").html(settings.title + " (" + countdown + "s)");
-          if (countdown <= 0) {
-            $("#dialog-confirm").dialog("close");
-          }
-        }, 1000);
-      }
+      startCountdown(settings);
     },
     close: function () {
       clearInterval(countdownInterval);
+      countdownInterval = null;
     },
     buttons: [
       {
@@ -76,4 +106,10 @@ function jquery_modal(options) {
     ],
   });
   $("#" + settings.buttonId).css("background-color", settings.buttonColor);
+
+  // The "open" event only refires when the slot was closed (mid-close swap).
+  // For an already-open swap it does not — start the countdown ourselves.
+  if (swapping) {
+    startCountdown(settings);
+  }
 }

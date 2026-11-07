@@ -80,9 +80,8 @@ function clearQueueAction() {
     return;
   }
 
-  // Password correct — clear queue
-  clearInterval(countdownInterval);
-  $("#dialog-confirm").dialog("close");
+  // Password correct — clear queue. The dialog stays open: the success
+  // modal below swaps its content in place (no close -> gap -> open jitter).
   document.activeElement.blur();
 
   $("#right-block-down").html("");
@@ -91,13 +90,11 @@ function clearQueueAction() {
     queue_lookup.clear();
   }
 
-  setTimeout(function () {
-    jquery_modal({
-      message:
-        "The queue was cleared succcessfully. Click on thumbnails to repopulate it.",
-      title: "Queue Cleared Successfully",
-    });
-  }, 500);
+  jquery_modal({
+    message:
+      "The queue was cleared succcessfully. Click on thumbnails to repopulate it.",
+    title: "Queue Cleared Successfully",
+  });
 }
 
 // Enter key triggers clear queue action (same as original)
