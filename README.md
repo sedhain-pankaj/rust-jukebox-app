@@ -1,6 +1,6 @@
 # Craig Williams JukeBox
 
-This is a rust port of my other project `Craigs Music Player` which was bulit with PHP and JS. This is a new kiosk-style desktop jukebox application built with **Tauri** (Rust + JavaScript) with every configuration required built into a single EXE file. Browse, queue, and play music videos from a local library — organized by genre — with shuffle, search, YouTube integration, and an on-screen keyboard for touch-friendly use.
+This is a rust port of my other project `Craigs Music Player` which was built with PHP and JS. This is a new kiosk-style desktop jukebox application built with **Tauri** (Rust + JavaScript) with every configuration required built into a single EXE file. Browse, queue, and play music videos from a local library — organized by genre — with shuffle, search, YouTube integration, and an on-screen keyboard for touch-friendly use.
 
 ![Platform: Windows](https://img.shields.io/badge/platform-Windows-blue)
 ![Built with Tauri](https://img.shields.io/badge/built%20with-Tauri%202-orange)
@@ -26,7 +26,7 @@ This is a rust port of my other project `Craigs Music Player` which was bulit wi
 ### Shuffle / Randomizer
 
 - **Per-category shuffle** using Fisher-Yates algorithm
-- **Auto-shuffle 80's** when idle (no queue, no song playing)
+- **Auto-shuffle 80's** when idle (no queue, no song playing) — restarts automatically when a shuffle or queue ends, with no user input needed (immediate + 4 delayed retries, so the restart can't race the player's teardown)
 - Shuffle pauses when queue has songs; resumes when queue empties
 
 ### Video Player
@@ -66,7 +66,9 @@ This is a rust port of my other project `Craigs Music Player` which was bulit wi
 
 - **Rust** — Install from [https://rustup.rs](https://rustup.rs)
 - **Music files** — You need your own music/video library (not included in the repo due to size). A guard is present in `main.rs` to check for the `music/` folder and prompt you to create it if missing.
-- **Missing variables** - _YT_API_KEY_ from `youtube.js` needed for searching youtube and _queue_clear_passowrd_ from `delete.js` needed to clear the whole queue. Create `ui\JS\config.js` file with these variables.
+- **Secrets in `.env`** — a `KEY=VALUE` file next to the `music/` folder (fallback: the working directory), parsed once at startup — changes require an app restart. It is gitignored; `config.js` is tracked app code and no longer holds any secrets:
+  - `YT_API_KEY` — consumed by Rust only (the `youtube_search` IPC command); it never enters the webview.
+  - `QUEUE_CLEAR_PASSWORD` — consumed by the webview (`config.js` fetches it over IPC, where `YT_API_KEY` is stripped from the payload) to clear the whole queue.
 
 ## Setting Up the Music Library
 
@@ -175,7 +177,11 @@ The app targets a Windows kiosk jukebox on **low-end hardware** with a big libra
 
 ### Startup & IPC
 
-- **Song library cached in Rust** (`song_cache.rs`). *How:* scanned once in `.setup()` before JS runs (the scan overlaps window/JS loading); every IPC call (`get_all_categories`, `get_songs_by_category`, `get_shuffle_paths`) returns from memory; re-scan only when a category dir's mtime/size changes (10 cheap `metadata()` calls, never a dir read); auto-refresh after an admin copy, plus a `refresh_song_cache` command. *Why:* every IPC call used to re-read 10 directories from disk — on a slow disk each category click, shuffle, and the startup auto-shuffle paid for it.
+- **Song library cached in Rust** (`song_cache.rs`). *How:* scanned once in `.setup()` before JS runs (the scan overlaps window/JS loading; every scan logs `Song scan: N songs across 10 directories in X ms` to the terminal); every IPC call (`get_all_categories`, `get_songs_by_category`, `get_shuffle_paths`) returns from memory; per-category serving (`songs_for`) clones only the requested category (≈1/10 of the old all-10 copy); the 10 directory mtime/size freshness checks are 15 s TTL-gated (zero stat calls inside the window); re-scan on fingerprint mismatch, immediately after an admin copy, or via the async `refresh_song_cache` command (its re-scan runs on a blocking thread, so it never blocks the main IPC thread). *Why:* every IPC call used to re-read 10 directories from disk and copy all 10 categories into the response — on a slow disk each category click, shuffle, and the startup auto-shuffle paid for it.
+- **Media server resolution cache** (`media_server.rs`). *How:* the first request for a URL does the full work — `canonicalize` (re-resolves the Windows junction) + root check + `metadata()` — and the result (canonical path, length, mime, mtime) is cached per URL (bounded, 2048 entries); later requests (seek bursts = many Range requests on the same file) cost one `metadata()` re-validation (size + mtime). A replaced or removed file invalidates the entry and re-resolves; the first-contact canonicalize + root check is never skipped. *Why:* a seek/scrub used to pay the junction re-resolution once per Range request.
+- **Fast port acquisition** (`media_server.rs`). *How:* the previous-instance probe read timeout is 250 ms (was 2 s — a live server answers in <5 ms on loopback, a dead port is refused in ~0 ms) and the bind retry is 100 ms (was 500 ms), with 2 attempts per port before moving to the next candidate. Worst case across all 8 candidate ports: ≈2.8 s (was ≈16 s). *Why:* the app must not stall startup if the previous instance's socket is still releasing — but the 2 retries per port keep the "reuse the same port" protection; a slow release just lands on the next candidate, which is harmless (all 8 ports are enumerated in the CSP and the JS reads the actual bound port over IPC).
+- **YouTube search in Rust** (`youtube_search` IPC). *How:* the webview sends only the query text; Rust reads `YT_API_KEY` from `.env`, fetches the top 10 results, and returns them with the title pre-escaped once (`title_html`) for display. Each search logs `YouTube search '<q>' -> N results in X ms`. *Why:* the old webview XHR corrupted `&`, `#`, `+` in query strings and shipped the API key into the page; the `googleapis` origin it needed is gone from the CSP's `connect-src`.
+- **Auto-shuffle restart is autonomous** (`index.js`). *How:* every idle transition (startup, shuffle end in `shuffle.js`, queue end in `queue.js`) calls `scheduleAutoShuffleRestart()` — an immediate check plus up to 4 delayed retries (1 s apart). *Why:* the old code checked `$("video").attr("src") == ""` inline right after `resetPlayer()`, but mejs's teardown settles over a short window — the check raced it, the second cycle only restarted after a mouse move / fake click, and the queue-end path triggered nothing at all. The delayed retries let the teardown settle; no user input is needed (the old activity-listener remnant was removed).
 - **Single page load.** *How:* the window opens on `about:blank`, navigates to the localhost plugin server (YouTube Referer fix), and falls back to the bundled asset page if the server is down. *Why:* the page used to load twice (asset page → navigation → full reload), parsing ~0.8 MB of scripts (jquery, jquery-ui, mejs) two times.
 - **No UI freezes.** *How:* the blocking work — USB scan, song copy, speed-test download — runs in `spawn_blocking` behind `async` IPC commands; the copy emits per-file `admin-copy-progress` events and is cancelable (flag checked between files). *Why:* sync Tauri commands run on the main thread and freeze the UI event loop — a USB scan or a multi-GB copy would have frozen the screen for seconds to minutes.
 - **Memoized path lookup.** *How:* `get_music_base_path` and the `.env` parse are `OnceLock`-cached; debug-log file writes are gated behind `debug_assertions`. *Why:* the base path is looked up by *every* IPC command and used to write a temp file on each call — a disk write per IPC call on slow hardware.
@@ -198,9 +204,17 @@ The app targets a Windows kiosk jukebox on **low-end hardware** with a big libra
 - **Honest countdown** — the 10 s auto-timer starts only when the (async) scan resolves; the UI shows "…" meanwhile.
 - **New-only manual list** with a "Show existing" toggle, row thumbnails (runtime USB asset-scope grant), and a progress modal with per-file line and Cancel.
 
+### Security
+
+- **Asset protocol locked down** — the static `assetProtocol` scope is `[]` (nothing is readable through `asset://` by default); every real use is a runtime `allow_directory` grant: the music directory (junction + canonical) at setup, the USB drive in admin mode. Thumbnails (`convertFileSrc`) are covered by those grants.
+- **Hand-written CSP, Tauri's CSP modification disabled** (`dangerousDisableAssetCspModification: true`) — the CSP in `tauri.conf.json` already enumerates the asset origins in `default/img/media/connect-src`; letting Tauri "modify" the CSP actually rewrites it and drops hand-written directives (it once broke `script-src 'unsafe-inline'`, which the app's inline handlers need), so the flag is load-bearing despite its scary name.
+- **Secrets stay in Rust** — `YT_API_KEY` is read from `.env` by the `youtube_search` command only; `get_app_env` strips it before anything reaches the webview (which receives just `QUEUE_CLEAR_PASSWORD`).
+- **Media server paths are canonicalized + root-checked** on first contact (the resolution cache re-validates with size + mtime but never skips the first check).
+- HTML escaping happens once at the data boundary in Rust (`Song.name_escaped`, `ShuffleSong.name_escaped`, `YouTubeSearchItem.title_html`); the JS injects it through `textContent`/`innerHTML` exactly once and never re-derives it (the old decode + extension-strip + re-escape round trip is gone).
+
 ### Housekeeping
 
-- `const CATS` (zero-allocation), `sort_by_key` sorts (one lowercase alloc per element instead of two per comparison — `cmp_ignore_ascii_case` was rejected: it changes ordering for accented titles), speed-test quality/icon owned by Rust (one threshold source), debug-only commands deleted, dead wrappers dropped, clippy clean (0 warnings), unit tests for scanning + cache invalidation.
+- `const CATS` (zero-allocation), `sort_by_key` sorts (one lowercase alloc per element instead of two per comparison — `cmp_ignore_ascii_case` was rejected: it changes ordering for accented titles), speed-test quality/icon owned by Rust (one threshold source), debug-only commands deleted, dead wrappers dropped, clippy clean (0 warnings), 9 unit tests (escape, scan, song-cache + media-file-cache invalidation).
 - The speed test uses `reqwest` in `spawn_blocking` rather than a raw `TcpStream`: the test URL is HTTPS and `std` has no TLS (the media server is plain-HTTP localhost only, which is why it can use raw sockets).
 - Known leftovers: stray `music/demo.png`; the PHP→Rust educational comments in the sources are kept as onboarding material.
 
