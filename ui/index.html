@@ -303,10 +303,12 @@
             </div>
             <div class="right-block-down" id="right-block-down"></div>
             <div id="right-side-arrow">
-                <button id="scroll_up" class="scroll_up_queue">
+                <!-- class selectors only: #scroll_up/#scroll_down were
+                     duplicated IDs (also on the content-side arrows) -->
+                <button class="scroll_up_queue">
                     <i class="material-icons" style="font-size:clamp(1vw, 2.5vw, 3vw); position:absolute">arrow_circle_up</i>
                 </button>
-                <button id="scroll_down" class="scroll_down_queue">
+                <button class="scroll_down_queue">
                     <i class="material-icons" style="font-size:clamp(1vw, 2.5vw, 3vw); position:absolute">arrow_circle_down</i>
                 </button>
             </div>
@@ -334,10 +336,10 @@
         </div>
 
         <div id="left-side-arrow">
-            <button id="scroll_up" class="scroll_up_content">
+            <button class="scroll_up_content">
                 <i class="material-icons" style="font-size:clamp(1vw, 2.5vw, 3vw); position:absolute">arrow_circle_up</i>
             </button>
-            <button id="scroll_down" class="scroll_down_content">
+            <button class="scroll_down_content">
                 <i class="material-icons" style="font-size:clamp(1vw, 2.5vw, 3vw); position:absolute">arrow_circle_down</i>
             </button>
         </div>
@@ -350,9 +352,11 @@
     ================================================================= -->
     <div id="footer">
         <span> Craig Williams Promotions. Call 1300-888-581 for Support.</span>
-        <!-- jQuery UI dialog container + hidden YouTube search input -->
+        <!-- jQuery UI dialog container.
+             (The old hidden #search_query input here was a dead duplicate —
+              the real one is injected by youtube.js into
+              #div_img_video_loader, which comes earlier in document order.) -->
         <div id="dialog-confirm"></div>
-        <input type='hidden' id="search_query" name="search_query" placeholder="Search YouTube" autocomplete="off">
     </div>
 
     </div>

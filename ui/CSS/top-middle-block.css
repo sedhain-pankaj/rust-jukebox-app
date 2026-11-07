@@ -62,7 +62,8 @@ td {
   font-weight: bold;
   border-radius: 0.5vw;
 }
-#index {
+/* YouTube result rows: class (was a duplicated #index ID, one per row) */
+.yt_index {
   width: 5%;
 }
 
@@ -91,9 +92,13 @@ td {
   margin: auto;
 }
 
-/* song up and down arrow */
-#scroll_up,
-#scroll_down {
+/* song up and down arrow — class selectors (the buttons used to carry
+   duplicated #scroll_up/#scroll_down IDs, one pair each for the queue
+   and the song list; the position classes below do the per-pair work) */
+.scroll_up_content,
+.scroll_down_content,
+.scroll_up_queue,
+.scroll_down_queue {
   background-color: #4100f4;
   border: 0.1vw solid #315f53;
   border-radius: 1vw;
@@ -117,15 +122,19 @@ td {
   bottom: 0px;
 }
 
-#scroll_up:hover,
-#scroll_down:hover {
+.scroll_up_content:hover,
+.scroll_down_content:hover,
+.scroll_up_queue:hover,
+.scroll_down_queue:hover {
   background-color: #0f9171;
   box-shadow: 3px 3px 10px #d3cccc;
   transform: translateX(-1px);
 }
 
-#scroll_up:active,
-#scroll_down:active {
+.scroll_up_content:active,
+.scroll_down_content:active,
+.scroll_up_queue:active,
+.scroll_down_queue:active {
   background-color: #0f9171;
   transform: translateX(1px);
   box-shadow: 0px 0px 0px #d3cccc;
