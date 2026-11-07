@@ -33,12 +33,17 @@ body {
   scrollbar-width: none;
 }
 
-/* img - whole page */
+/* img - whole page. object-fit: cover crops to the fixed 5vw x 7vh box
+   instead of stretching — the previous behaviour distorted every
+   thumbnail (song list, queue, search results, YouTube rows). */
 img {
   width: 5vw;
   height: 7vh;
+  object-fit: cover;
+  object-position: center;
   border-radius: 0.7vw;
-  border: 0.1vw solid #315f53;
+  border: none;
+  box-shadow: 0 0.1vw 0.4vw rgba(0, 0, 0, 0.35);
   margin-bottom: 1%;
 }
 
