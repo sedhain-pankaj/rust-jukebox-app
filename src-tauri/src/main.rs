@@ -223,7 +223,8 @@ struct AdminCopyResult {
 #[tauri::command]
 fn get_all_categories() -> Vec<Category> {
     // Served from the pre-scan cache (primed in .setup()); the 10 directory
-    // mtime/size checks below are cheap metadata calls, no directory reads.
+    // mtime/size freshness checks (cheap metadata calls, no directory reads)
+    // are TTL-gated inside the cache (see song_cache::FRESHNESS_TTL).
     let base_path = get_music_base_path();
     let categories = song_cache::categories(&base_path);
 
@@ -738,10 +739,17 @@ fn cancel_admin_copy() {
 }
 
 /// Re-scans the song library from disk (public refresh entry point).
+/// Async + spawn_blocking: the scan is 10 read_dir passes over the 74 GB
+/// music tree — running it on the main IPC thread would freeze the UI
+/// while it runs (backlog #2).
 #[tauri::command]
-fn refresh_song_cache() -> Vec<Category> {
-    let base = get_music_base_path();
-    song_cache::refresh(&base)
+async fn refresh_song_cache() -> Result<Vec<Category>, String> {
+    tauri::async_runtime::spawn_blocking(|| {
+        let base = get_music_base_path();
+        Ok(song_cache::refresh(&base))
+    })
+    .await
+    .map_err(|e| format!("refresh task failed: {e}"))?
 }
 
 /// Adds an admin USB music directory to the asset protocol scope at runtime,
@@ -768,10 +776,10 @@ fn admin_grant_usb_scope(music_path: String, app_handle: tauri::AppHandle) {
 #[tauri::command]
 fn get_songs_by_category(key: String) -> Vec<Song> {
     let base_path = get_music_base_path();
-    let categories = song_cache::categories(&base_path);
-
-    match categories.into_iter().find(|c| c.key == key) {
-        Some(category) => category.songs,
+    // songs_for() clones ONE category's Vec (~1/10 of the whole-library
+    // copy the old categories() path made per call) — backlog #1.
+    match song_cache::songs_for(&base_path, &key) {
+        Some(songs) => songs,
         None => {
             term_log(&format!("Unknown category key: {key}"));
             Vec::new()
@@ -779,26 +787,154 @@ fn get_songs_by_category(key: String) -> Vec<Song> {
     }
 }
 
-/// Returns shuffled file paths for a category (used by shuffle/randomizer).
+/// One shuffle entry: the media-server target path plus the display name,
+/// pre-escaped in Rust (the JS used to re-derive the name from the URL —
+/// decodeURIComponent + strip extension — which is now done once here).
+#[derive(serde::Serialize)]
+struct ShuffleSong {
+    path_abs: String,
+    name_escaped: String,
+}
+
+/// Returns shuffled entries (path + pre-escaped name) for a category
+/// (used by shuffle/randomizer).
 ///
 /// Replaces the PHP shuffle_img_video_loader() that returned paths
-/// separated by <br>. Now returns a clean JSON array of paths.
+/// separated by <br>. Now returns a clean JSON array of entries.
 ///
 /// JavaScript usage:
-///   const paths = await window.__TAURI__.core.invoke("get_shuffle_paths", { key: "80" });
-///   // paths = ["music/Eighty/song1.mp4", "music/Eighty/song2.mp4", ...]
+///   const songs = await window.__TAURI__.core.invoke("get_shuffle_paths", { key: "80" });
+///   // songs = [{ path_abs: "C:/.../music/Eighty/song1.mp4", name_escaped: "Song 1" }, ...]
 #[tauri::command]
-fn get_shuffle_paths(key: String) -> Vec<String> {
+fn get_shuffle_paths(key: String) -> Vec<ShuffleSong> {
     let base_path = get_music_base_path();
-    let categories = song_cache::categories(&base_path);
-
-    match categories.into_iter().find(|c| c.key == key) {
-        Some(category) => category.songs.into_iter().map(|s| s.path_abs).collect(),
+    // songs_for() — one category's clone instead of all 10 (backlog #1).
+    match song_cache::songs_for(&base_path, &key) {
+        Some(songs) => songs
+            .into_iter()
+            .map(|s| ShuffleSong {
+                path_abs: s.path_abs,
+                name_escaped: s.name_escaped,
+            })
+            .collect(),
         None => {
             term_log(&format!("Unknown category key: {key}"));
             Vec::new()
         }
     }
+}
+
+/// One YouTube search result. `title_html` is pre-escaped in Rust so the
+/// frontend can inject it directly into the DOM (same policy as
+/// Song.name_escaped).
+#[derive(serde::Serialize)]
+struct YouTubeSearchItem {
+    video_id: String,
+    title_html: String,
+    thumbnail: String,
+}
+
+#[derive(serde::Serialize)]
+struct YouTubeSearchResult {
+    items: Vec<YouTubeSearchItem>,
+}
+
+/// YouTube search executed in Rust (backlog: reduce JS computation,
+/// move work to Rust over IPC). Replaces the $.ajax call that built the
+/// Google API URL by string concatenation — a query containing `&`, `#`
+/// or `+` silently corrupted it. reqwest percent-encodes every query
+/// parameter, and the API key stays in Rust (read from .env) instead of
+/// being shipped to the webview via get_app_env.
+#[tauri::command]
+async fn youtube_search(query: String) -> Result<YouTubeSearchResult, String> {
+    tauri::async_runtime::spawn_blocking(move || youtube_search_impl(&query))
+        .await
+        .map_err(|e| format!("youtube search task failed: {e}"))?
+}
+
+fn youtube_search_impl(query: &str) -> Result<YouTubeSearchResult, String> {
+    let started = std::time::Instant::now();
+    let key = APP_ENV
+        .get_or_init(load_app_env)
+        .get("YT_API_KEY")
+        .map(|s| s.as_str())
+        .unwrap_or("");
+    if key.is_empty() {
+        return Err(
+            "YT_API_KEY is not set in .env — YouTube search is disabled".into(),
+        );
+    }
+
+    // query() percent-encodes each parameter value (the old JS
+    // concatenation did not — see the doc comment above).
+    let response = reqwest::blocking::Client::new()
+        .get("https://www.googleapis.com/youtube/v3/search")
+        .query(&[
+            ("part", "snippet"),
+            ("q", query),
+            ("type", "video"),
+            ("videoEmbeddable", "true"),
+            ("maxResults", "10"),
+            ("key", key),
+        ])
+        .send()
+        .map_err(|e| format!("YouTube search request failed: {e}"))?;
+
+    let status = response.status();
+    // text() + from_str: the reqwest "json" feature is not enabled, and
+    // the speed test already uses the text()/bytes() style.
+    let body: serde_json::Value = serde_json::from_str(
+        &response
+            .text()
+            .map_err(|e| format!("YouTube search response read failed: {e}"))?,
+    )
+    .map_err(|e| format!("YouTube search response is not JSON: {e}"))?;
+
+    if status != reqwest::StatusCode::OK {
+        let message = body
+            .get("error")
+            .and_then(|e| e.get("message"))
+            .and_then(|m| m.as_str())
+            .unwrap_or("unknown error");
+        return Err(format!("YouTube search failed ({status}): {message}"));
+    }
+
+    let mut items = Vec::new();
+    if let Some(list) = body.get("items").and_then(|i| i.as_array()) {
+        for item in list {
+            let video_id = item
+                .get("id")
+                .and_then(|v| v.get("videoId"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let title = item
+                .get("snippet")
+                .and_then(|s| s.get("title"))
+                .and_then(|t| t.as_str())
+                .unwrap_or("");
+            let thumbnail = item
+                .get("snippet")
+                .and_then(|s| s.get("thumbnails"))
+                .and_then(|t| t.get("default"))
+                .and_then(|t| t.get("url"))
+                .and_then(|u| u.as_str())
+                .unwrap_or("")
+                .to_string();
+            items.push(YouTubeSearchItem {
+                video_id,
+                title_html: songs::escape_html(title),
+                thumbnail,
+            });
+        }
+    }
+
+    term_log(&format!(
+        "YouTube search '{query}' -> {} results in {} ms",
+        items.len(),
+        started.elapsed().as_millis()
+    ));
+    Ok(YouTubeSearchResult { items })
 }
 
 /// Native internet speed test.
@@ -896,8 +1032,8 @@ fn get_media_server_port() -> u16 {
 
 /// KEY=VALUE pairs from the app's .env file (next to the music/ directory,
 /// falling back to the current directory). config.js uses this to fetch
-/// secrets (YT_API_KEY, QUEUE_CLEAR_PASSWORD) that are no longer hardcoded
-/// in the tracked config.js.
+/// the queue-clear password that is no longer hardcoded in the tracked
+/// config.js.
 ///
 /// Parsed once per process (OnceLock) — was a disk read + re-parse on every
 /// call. Changing the .env requires an app restart (acceptable: it is a
@@ -906,7 +1042,11 @@ static APP_ENV: OnceLock<std::collections::BTreeMap<String, String>> = OnceLock:
 
 #[tauri::command]
 fn get_app_env() -> std::collections::BTreeMap<String, String> {
-    APP_ENV.get_or_init(load_app_env).clone()
+    let mut env = APP_ENV.get_or_init(load_app_env).clone();
+    // The YouTube API key is consumed by the Rust-side youtube_search
+    // command — keep it out of the webview (it used to be shipped here).
+    env.remove("YT_API_KEY");
+    env
 }
 
 fn load_app_env() -> std::collections::BTreeMap<String, String> {
@@ -1098,9 +1238,14 @@ fn main() {
         // that points from rust-jukebox-app/music/ → ../music/. When Tauri's
         // asset protocol tries to serve a file, it canonicalizes the path
         // (resolves junctions/symlinks to the real location). The canonical
-        // path is OUTSIDE rust-jukebox-app/, so the default scope ("**") doesn't
-        // match it. By explicitly adding the canonical music directory to
-        // the scope at runtime, we tell Tauri "this path is allowed".
+        // path is OUTSIDE rust-jukebox-app/, so the static asset scope
+        // (deliberately EMPTY in tauri.conf.json — nothing is allowed
+        // statically; the whole filesystem must not be readable through
+        // asset://) would not match it. By explicitly adding the music
+        // directory (junction + canonical form) to the scope at runtime,
+        // we tell Tauri "these paths are allowed". The USB admin scope is
+        // granted the same way (admin_grant_usb_scope) when a USB is
+        // inserted.
         // -----------------------------------------------------------------
         .setup(move |app| {
             // Find the music directory (memoized — IPC commands share this)
@@ -1304,6 +1449,7 @@ fn main() {
             get_shuffle_paths,
             refresh_song_cache,
             speed_test,
+            youtube_search,
             get_media_server_port,
             get_app_env,
         ])
