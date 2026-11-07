@@ -57,7 +57,7 @@ This is a rust port of my other project `Craigs Music Player` which was built wi
 - **3-column layout**: categories + volume (left), video player + song browser (center), search + queue (right)
 - Smooth scroll controls for song lists and queue
 - Side navigation for shuffle category selection
-- Modal dialogs for confirmations and notices
+- Modal dialogs for confirmations and notices — one shared dialog slot: when a modal follows another (password → success, confirm → progress → result) its content swaps in place, no close→gap→open flicker
 - Text selection disabled (kiosk mode)
 
 ---
@@ -192,6 +192,7 @@ The app targets a Windows kiosk jukebox on **low-end hardware** with a big libra
 - **Hardcoded static UI** — the 10 category buttons and 9 shuffle links live in `ui/index.html` (kept in sync with the compile-time `CATS` list in Rust, which remains the single source of truth for scanning). They render before the IPC round-trip instead of after. The on-screen keyboard stays JS-built (its timer/caps logic made hardcoding not worth the risk).
 - **One shared startup gate** — `startupGate()` in `validation.js` (admin check → media-server port → music-structure validation, memoized) replaces the copy-pasted gate in `index.js` and `songs.js`.
 - **`preload='metadata'`** on the video element (consistent in markup and `resetPlayer()`) — lighter on a slow disk than `auto`.
+- **Single modal slot** (`modal.js`). *How:* every dialog reuses one `#dialog-confirm` widget (jQuery UI re-opens it on every `.dialog()` call because `autoOpen` re-runs); when a modal is requested while the slot is still occupied — open, or with its blind-close animation queued/running — `jquery_modal` swaps the content in place (title, HTML, buttons, class, size, timer; no open animation). An in-flight blind hide is cancelled with `stop(true, false)`, i.e. *without* letting it complete, so its delayed "close" event (which fires only when the animation finishes) can never clear the new modal's countdown. The countdown is an idempotent `startCountdown()` that always kills the previous timer first and resets to the new modal's full `closeTime` — no timer bleed between modals; `closeTime: 0` starts no timer at all. *Why:* the old patterns (explicit close + delayed reopen, or `closeOnClick` + a follow-up modal) played close-animation → gap → open-animation on the same element — the clear-queue password box "handing over" to the success box, and admin confirm → progress → result, looked like jitter.
 
 ### Thumbnails
 
